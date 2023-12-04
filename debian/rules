@@ -1,4 +1,115 @@
 #!/usr/bin/make -f
+export DH_VERBOSE=1
+
+include /usr/share/dpkg/pkg-info.mk
+
+MULTILIB_LIST="--with-multilib-list=rmprofile,aprofile"
+
+PACKAGE_GCC=gcc-arm-none-eabi
+PACKAGE_GCC_SOURCE=gcc-arm-none-eabi-source
+TARGET=arm-none-eabi
+TOP_DIR=$(shell pwd)
+
+UPSTREAM_URL=https://developer.arm.com/-/media/Files/downloads/gnu-rm/7-2018q2/gcc-arm-none-eabi-7-2018-q2-update-src.tar.bz2
+GCC_BUILD_DIR=$(TOP_DIR)/build
+GCC_SOURCE_DIR=$(TOP_DIR)
+GCC_DEB_TMP_DIR=$(TOP_DIR)/debian/$(PACKAGE_GCC)-tmp
+GCC_DOC_TEXI_LEGEND_DIR=$(TOP_DIR)/../texi_legend.txt
+GCC_SOURCE_DEB_TMP_DIR=$(TOP_DIR)/debian/$(PACKAGE_GCC_SOURCE)-tmp
+
+export DEB_BUILD_MAINT_OPTIONS=hardening=-format
+BUILDFLAGS:=$(shell dpkg-buildflags --export=configure) INHIBIT_LIBC_CFLAGS="-DUSE_TM_CLONE_REGISTRY=0"
+
+TARGET_TOOLS=\
+	AR_FOR_TARGET=$(TARGET)-ar \
+	AS_FOR_TARGET=$(TARGET)-as \
+	LD_FOR_TARGET=$(TARGET)-ld \
+	NM_FOR_TARGET=$(TARGET)-nm \
+	OBJDUMP_FOR_TARGET=$(TARGET)-objdump \
+	RANLIB_FOR_TARGET=$(TARGET)-ranlib \
+	READELF_FOR_TARGET=$(TARGET)-readelf \
+	STRIP_FOR_TARGET=$(TARGET)-strip
+
+CONFIGURE_GCC_FLAGS = \
+	--mandir=/usr/share/man \
+	--enable-languages=c,c++,lto \
+	--enable-multilib \
+	--disable-decimal-float \
+	--disable-libffi \
+	--disable-libgomp \
+	--disable-libmudflap \
+	--disable-libquadmath \
+	--disable-libssp \
+	--disable-libstdcxx-pch \
+	--disable-nls \
+	--disable-shared \
+	--disable-threads \
+	--enable-tls \
+	--build=$(DEB_BUILD_GNU_TYPE) \
+	--target=$(TARGET) \
+	--with-system-zlib \
+	--with-gnu-as \
+	--with-gnu-ld \
+	"--with-pkgversion=$(DEB_VERSION)" \
+	--without-included-gettext \
+	--prefix=/usr/lib \
+	--infodir=/usr/share/doc/$(PACKAGE_GCC)/info \
+	--htmldir=/usr/share/doc/$(PACKAGE_GCC)/html \
+	--pdfdir=/usr/share/doc/$(PACKAGE_GCC)/pdf \
+	--bindir=/usr/bin \
+	--libexecdir=/usr/lib \
+	--libdir=/usr/lib \
+	--disable-libstdc++-v3 \
+	--host=$(DEB_HOST_GNU_TYPE) \
+	--with-headers=no \
+	--without-newlib \
+	$(MULTILIB_LIST) \
+	$(BUILDFLAGS) \
+	$(TARGET_TOOLS) \
+	SED=/bin/sed \
+	SHELL=/bin/sh \
+	BASH=/bin/bash \
+	CONFIG_SHELL=/bin/bash \
 
 %:
-	dh $@
+	dh $@ -D$(GCC_SOURCE_DIR) -B$(GCC_BUILD_DIR) --parallel --with autoreconf
+
+override_dh_autoreconf:
+	autoreconf2.69 -f $(GCC_SOURCE_DIR)
+
+override_dh_auto_configure:
+	dh_auto_configure -D$(GCC_SOURCE_DIR) -B$(GCC_BUILD_DIR) -- $(CONFIGURE_GCC_FLAGS)
+
+override_dh_auto_install:
+	$(MAKE) install -C$(GCC_BUILD_DIR) DESTDIR=$(GCC_DEB_TMP_DIR)
+
+override_dh_auto_test:
+	@echo "no testing, that's way too painful"
+
+override_dh_clean:
+	rm -rf $(GCC_BUILD_DIR)
+	rm -rf $(GCC_DEB_TMP_DIR) $(GCC_SOURCE_DEB_TMP_DIR)
+	rm -rf 32 x32
+	dh_clean
+
+override_dh_auto_build:
+	dh_auto_build -B $(GCC_BUILD_DIR)
+
+override_dh_strip:
+	dh_strip -X.a
+
+override_dh_install:
+	dh_install -p$(PACKAGE_GCC) --sourcedir $(GCC_DEB_TMP_DIR)
+	mkdir -p $(GCC_SOURCE_DEB_TMP_DIR)/usr/src
+	tar --exclude=build --exclude=.git --exclude=debian --exclude=autom4te.cache --sort=name --mtime="@$(SOURCE_DATE_EPOCH)" --owner=0 --group=0 --numeric-owner --mode=0755 -C $(TOP_DIR) -c -f - . | xz -T0 > $(GCC_SOURCE_DEB_TMP_DIR)/usr/src/$(PACKAGE_GCC_SOURCE).tar.xz
+	dh_install -p$(PACKAGE_GCC_SOURCE) --sourcedir $(GCC_SOURCE_DEB_TMP_DIR)
+
+override_dh_compress:
+	dh_compress -Xexamples/
+
+get-orig-source:
+	# This is just temporary, a Debian friendly way was already reported to
+	# upstream here
+	# https://answers.launchpad.net/gcc-arm-embedded/+question/671738
+	wget $(UPSTREAM_URL) -O ../gcc-arm-none-eabi-7-2018-q2-update-src.tar.bz2
+	python3 debian/repack-upstream.py ../gcc-arm-none-eabi-7-2018-q2-update-src.tar.bz2 ../gcc-arm-none-eabi_$(DEB_VERSION_UPSTREAM).orig.tar.xz

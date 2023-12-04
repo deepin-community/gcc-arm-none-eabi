@@ -1,0 +1,3 @@
+cp -aR /usr/share/doc/gcc-arm-none-eabi/ ${HOME}
+cd ${HOME}/gcc-arm-none-eabi/examples/src
+make
