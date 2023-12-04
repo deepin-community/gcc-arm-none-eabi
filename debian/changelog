@@ -1,5 +1,304 @@
-template-repository (1.0-1) unstable; urgency=medium
+gcc-arm-none-eabi (15:12.2.rel1-1) unstable; urgency=medium
 
-  * Initial release
+  * New upstream 12.2.rel1
 
- -- Tsic404 <liuheng@deepin.org>  Sat, 28 Jan 2023 13:46:49 +0800
+ -- Keith Packard <keithp@keithp.com>  Thu, 22 Dec 2022 11:50:13 -0800
+
+gcc-arm-none-eabi (15:11.3.rel1-1) unstable; urgency=medium
+
+  * New upstream version 11.3.rel1
+
+ -- Keith Packard <keithp@keithp.com>  Tue, 11 Oct 2022 10:47:01 -0700
+
+gcc-arm-none-eabi (15:10.3-2021.07-4) unstable; urgency=medium
+
+  * Re-add gcc-arm-none-eabi-source package. (Closes: #999817)
+
+ -- Keith Packard <keithp@keithp.com>  Wed, 17 Nov 2021 08:56:53 -0800
+
+gcc-arm-none-eabi (15:10.3-2021.07-3) unstable; urgency=medium
+
+  * Remove gcc-arm-none-eabi-source package. Why did this exist?
+
+ -- Keith Packard <keithp@keithp.com>  Mon, 08 Nov 2021 18:42:32 -0800
+
+gcc-arm-none-eabi (15:10.3-2021.07-2) unstable; urgency=medium
+
+  * debian/rules: Generate tarball reproducibly. (Closes: #996194)
+
+  * debian/rules: Pass variables to configure to make the package
+    build reproducibly regardless of usrmerge. (Closes: #996572)
+
+  * debian/control: Set Rules-Requires-Root to "no". (Closes: #996573)
+
+  * debian/control: mark gcc-arm-none-eabi Multi-Arch:
+    foreign. (Closes: #960166)
+
+ -- Keith Packard <keithp@keithp.com>  Fri, 29 Oct 2021 10:56:10 -0700
+
+gcc-arm-none-eabi (15:10.3-2021.07-1) unstable; urgency=medium
+
+  * New upstream version 10.3-2021.07
+
+ -- Keith Packard <keithp@keithp.com>  Mon, 04 Oct 2021 14:17:30 -0700
+
+gcc-arm-none-eabi (15:10-2020-q4-major-2) unstable; urgency=medium
+
+  * Add aprofile to multilib list
+
+ -- Keith Packard <keithp@keithp.com>  Wed, 29 Sep 2021 12:47:05 -0700
+
+gcc-arm-none-eabi (15:10-2020-q4-major-1) unstable; urgency=medium
+
+  [ Keith Packard]
+  * New upstream version 10-2020-q4-major
+
+ -- Keith Packard <keithp@keithp.com>  Wed, 14 Jul 2021 17:21:50 -0700
+
+gcc-arm-none-eabi (15:8-2019-q3-1) unstable; urgency=medium
+
+  [ Joaquin de Andres ]
+  * New upstream version 8-2019-q3
+  * Adapt repack script for direct use by uscan.
+  * Update ci config to new pipeline definitions
+  * Add patch for isl >= 0.20
+  * Delete patch that is not needed any more.
+
+  [ Agustin Henze ]
+  * Add missing b-dependency on libisl-dev.
+    Thanks to Matthias Klose <doko@debian.org> (Closes: #922041)
+
+ -- Joaquin de Andres <xcancerberox@gmail.com>  Sun, 21 Jul 2019 00:55:22 -0300
+
+gcc-arm-none-eabi (15:7-2018-q2-6) unstable; urgency=medium
+
+  * Remove b-dependencies on libisl-0.18-dev and libcloog-isl-dev
+    (Closes: #921854)
+
+ -- Agustin Henze <tin@debian.org>  Mon, 11 Feb 2019 06:31:54 +0000
+
+gcc-arm-none-eabi (15:7-2018-q2-5) unstable; urgency=medium
+
+  * Remove source dependency on pxz and depend on xz-utils instead (Closes:
+    #919934).
+
+ -- Agustin Henze <tin@debian.org>  Mon, 28 Jan 2019 15:37:32 +0000
+
+gcc-arm-none-eabi (15:7-2018-q2-4) unstable; urgency=medium
+
+  * Add debian/watch file
+  * Fix FTBFS on ppc64el applying an upstream patch
+
+ -- Agustin Henze <tin@debian.org>  Sat, 22 Sep 2018 12:19:20 +0200
+
+gcc-arm-none-eabi (15:7-2018-q2-3) unstable; urgency=medium
+
+  * Fix empty gcc-arm-none-eabi-source package
+
+ -- Agustin Henze <tin@debian.org>  Mon, 13 Aug 2018 09:19:35 +0200
+
+gcc-arm-none-eabi (15:7-2018-q2-2) unstable; urgency=medium
+
+  * Fix (autopkg)tests
+  * Breaks with old newlib-arm-none-eabi and libstdc++-arm-none-eabi-newlib
+
+ -- Agustin Henze <tin@debian.org>  Sun, 12 Aug 2018 13:06:21 +0200
+
+gcc-arm-none-eabi (15:7-2018-q2-1) unstable; urgency=medium
+
+  * New upstream version 7-2018-q2
+  * Stop packaging from svn, repack upstream tarball using a custom script
+  * Update package description indicating it delivers the C++ compiler.
+    Thanks to Nicolas Cavallari <batchman@free.fr> (Closes: #884979)
+
+ -- Agustin Henze <tin@debian.org>  Sat, 11 Aug 2018 18:16:56 +0200
+
+gcc-arm-none-eabi (15:6.3.1+svn253039-2) unstable; urgency=medium
+
+  [ Agustin Henze ]
+  * Use specific version libisl-0.18-dev
+  * Replace the deprecated priority extra for optional
+  * Bump Standards-Version to 4.2.0 (No changes needed)
+  * Update upstream Homepage
+  * Remove obsolete X-Python-Version
+  * Update Vcs-* fields pointing to salsa
+  * Remove `--with autotools-dev`, it's run by default
+  * Add test for autopkgtest
+
+ -- Agustin Henze <tin@debian.org>  Fri, 10 Aug 2018 19:10:08 +0200
+
+gcc-arm-none-eabi (15:6.3.1+svn253039-1) unstable; urgency=medium
+
+  * Bumped Standard-Version to 4.0.0 (no changes required)
+  * Use secure urls for VCS fields
+  * Remove ada's doc, dfsg
+  * Using pkg-info.mk instead of parsing changelog by hand
+
+ -- Agustin Henze <tin@debian.org>  Wed, 20 Sep 2017 19:29:25 -0300
+
+gcc-arm-none-eabi (15:6.3.1+svn251940-1) unstable; urgency=medium
+
+  * Updated version 6.3.1+svn251940 from 'upstream/6.3.1+svn251940'
+  * Update gfdl and big-endian-support patches
+  * Remove armv8 support see https://bugs.launchpad.net/gcc-arm-embedded/+bug/1717502
+  * Add missing b-dependency on `rename`
+  * Use pxz to build source package
+  * Explicit multilib option for little-endian
+  * Fix multilib reuse rule for big-endian
+
+ -- Agustin Henze <tin@debian.org>  Mon, 11 Sep 2017 08:55:44 -0300
+
+gcc-arm-none-eabi (15:5.4.1+svn241155-1) unstable; urgency=medium
+
+  * Imported Upstream version 5.4.1+svn241155 (Closes: #831142)
+  * Update patches
+
+ -- Agustin Henze <tin@debian.org>  Fri, 14 Oct 2016 08:12:07 -0300
+
+gcc-arm-none-eabi (15:4.9.3+svn231177-1) unstable; urgency=medium
+
+  * Imported Upstream version 4.9.3+231177
+  * Rebuild against libisl15 (Closes: #806391)
+  * Update package description
+
+ -- Agustin Henze <tin@debian.org>  Wed, 02 Dec 2015 13:43:50 -0300
+
+gcc-arm-none-eabi (15:4.9.3+svn227297-1) unstable; urgency=medium
+
+  * Convert package from 3.0(native) to 3.0(quilt) (Closes: #791541)
+    - Add get-orig-source target
+    - Update and rename patches for new upstream version
+    - Rewrite debian/rules
+  * Imported Upstream version 4.9.3+svn227018
+
+ -- Agustin Henze <tin@debian.org>  Thu, 27 Aug 2015 16:20:50 -0300
+
+gcc-arm-none-eabi (14) unstable; urgency=medium
+
+  * Update 0001-Add-GNU-ARM-embedded-toolchain-patches.patch to embedded 4.9
+    branch
+  * Add big endian multilib support
+  * Switch to dpkg-source 3.0 (native) format
+
+ -- Agustin Henze <tin@debian.org>  Thu, 21 May 2015 09:01:08 -0300
+
+gcc-arm-none-eabi (13) experimental; urgency=medium
+
+  [ Thomas Preud'homme ]
+  * New upstream release: 4.9-2014-q4-major.
+  * Remove debian/gcc-plugins as tree-switch-shortcut is now added to GCC
+    source by GCC embedded patch.
+  * debian/debian_patches.txt: remove arm-sanitizer.diff and pr49847.diff as
+    they were applied upstream.
+  * debian/rules:
+    + remove recipe to compile tree-switch-shortcut as a plugin
+    + set major GCC version to 4.9
+  * debian/control: build-depend on gcc-4.9-source instead of gcc-4.8-source.
+
+  [ Agustin Henze ]
+  * debian/rules:
+    + Fix Built-Using field
+    + Fix hardening flags and enable stackprotectorstrong
+
+ -- Agustin Henze <tin@debian.org>  Sat, 10 Jan 2015 14:41:15 -0300
+
+gcc-arm-none-eabi (12) experimental; urgency=medium
+
+  [ Thomas Preud'homme ]
+  * New upstream release: 4.8-2014-q3-update.
+  * Modify patching so that patches can be version independent.
+
+  [ Agustin Henze ]
+  * Bumped Standard-Version to 3.9.6 (no changes required)
+
+ -- Agustin Henze <tin@debian.org>  Mon, 01 Dec 2014 10:30:31 -0300
+
+gcc-arm-none-eabi (11) unstable; urgency=medium
+
+  * Track GCC embedded branch.
+  * Enable plugin support and add tree_switch_shortcut_elf plugin.
+  * Add myself to uploaders.
+  * Add somes examples.
+  * Take build flags from dpkg-buildflags.
+  * Include upstream readme.txt in the documentation.
+
+ -- Thomas Preud'homme <thomas.preudhomme@arm.com>  Mon, 18 Aug 2014 02:52:23 +0000
+
+gcc-arm-none-eabi (10) unstable; urgency=medium
+
+  * Rebuilt using current gcc (Closes: #751311)
+
+ -- Agustin Henze <tin@debian.org>  Wed, 06 Aug 2014 17:15:42 -0300
+
+gcc-arm-none-eabi (9) unstable; urgency=medium
+
+  * Fix Built-Using field, was missing pass as parameter to dh_gencontrol
+  * Run dh-autoreconf to update config (Closes: #744575)
+  * Update patches to the new gcc version 4.8.3 (Closes: #750251)
+
+ -- Agustin Henze <tin@debian.org>  Fri, 13 Jun 2014 13:51:21 -0300
+
+gcc-arm-none-eabi (8) unstable; urgency=medium
+
+  * Fix multilib, thanks Keith! :)
+  * Add Built-Using field
+
+ -- Agustin Henze <tin@debian.org>  Tue, 25 Feb 2014 08:55:46 -0300
+
+gcc-arm-none-eabi (7) unstable; urgency=medium
+
+  * Applying debian patches (Closes: #739009)
+
+ -- Agustin Henze <tin@debian.org>  Wed, 19 Feb 2014 19:28:54 -0300
+
+gcc-arm-none-eabi (6) unstable; urgency=medium
+
+  * Remove as and ld hardcoded. Thanks to Mateusz Kaduk (Closes: #734577)
+  * Remove interwork
+  * Add missing build dependencies
+
+ -- Agustin Henze <tin@debian.org>  Wed, 15 Jan 2014 14:07:07 -0300
+
+gcc-arm-none-eabi (5) unstable; urgency=medium
+
+  * Bumped Standard-Version to 3.9.5 (no changes required)
+  * Enable c++ support. Thanks to Karl Lenz <xorangekiller@gmail.com>
+    (Closes: #733580, #732974)
+  * Swap Maintainer by Uploaders
+  * Add Vcs* fields
+  * Enable LTO (Link Time Optimization) (Closes: #734055)
+  * Fix installchangelogs and strip targets
+
+ -- Agustin Henze <tin@debian.org>  Fri, 03 Jan 2014 14:12:31 -0300
+
+gcc-arm-none-eabi (4) unstable; urgency=low
+
+  * Update patches to the new gcc version 4.8.2 (Closes: #730324)
+  * Remove duplicate build-depend on zlib1g-dev
+  * Add myself in uploaders
+  * Package description improved.
+  * Add recommends on libnewlib-arm-none-eabi
+
+ -- Agustin Henze <tin@debian.org>  Tue, 26 Nov 2013 08:14:32 -0300
+
+gcc-arm-none-eabi (3) unstable; urgency=low
+
+  * Don't install useless man pages
+  * Clean up lintian complaints
+  * Ship our own copyright file
+  * Install our changelog and gcc changelog
+
+ -- Keith Packard <keithp@keithp.com>  Tue, 15 Oct 2013 21:08:38 -0700
+
+gcc-arm-none-eabi (2) unstable; urgency=low
+
+  * Clean up install paths.
+
+ -- Keith Packard <keithp@keithp.com>  Wed, 09 Oct 2013 15:10:40 -0700
+
+gcc-arm-none-eabi (1) unstable; urgency=low
+
+  * Initial release.
+
+ -- Keith Packard <keithp@keithp.com>  Sun, 18 Aug 2013 02:49:03 +0200
+

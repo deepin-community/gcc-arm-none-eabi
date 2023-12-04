@@ -1,0 +1,49 @@
+From: Agustin Henze <tin@debian.org>
+Date: Wed, 4 Sep 2019 11:13:43 -0700
+Subject: provide-stdint-for-embedded
+
+commit 1440bee2991ff26fdcccfa18ab7e228399228f91
+Author: Keith Packard <keithp@keithp.com>
+Date:   Wed Sep 4 10:22:49 2019 -0700
+
+    Provide stdint.h when not using newlib for embedded targets
+    
+    All of the embedded targets assume newlib and so wrap stdint.h instead
+    of providing it natively. Kludge around this when newlib is not being
+    used by switching back to providing gcc's own stdint.h.
+    
+    Signed-off-by: Keith Packard <keithp@keithp.com>
+---
+ gcc/config.gcc | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/gcc/config.gcc b/gcc/config.gcc
+index 5813682..9383daf 100644
+--- a/gcc/config.gcc
++++ b/gcc/config.gcc
+@@ -3594,6 +3594,25 @@ m32c-*-elf*)
+ 	;;
+ esac
+ 
++# For targets which wrap stdint for use with newlib, undo that when
++# not using newlib
++
++case ${target} in
++*-none-*|*-unknown-*)
++	case ${use_gcc_stdint} in
++	wrap)
++		case ${with_newlib} in
++		yes)
++			;;
++		*)
++			use_gcc_stdint=provide
++			;;
++		esac
++		;;
++	esac
++	;;
++esac
++
+ case ${target} in
+ i[34567]86-*-linux* | x86_64-*-linux*)
+ 	tmake_file="${tmake_file} i386/t-pmm_malloc i386/t-i386"

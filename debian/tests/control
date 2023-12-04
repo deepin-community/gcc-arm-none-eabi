@@ -1,0 +1,5 @@
+Tests: build-examples
+Restrictions:
+    allow-stderr
+Depends: @,
+ libstdc++-arm-none-eabi-newlib,

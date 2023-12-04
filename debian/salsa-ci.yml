@@ -1,0 +1,12 @@
+include:
+  - https://salsa.debian.org/salsa-ci-team/pipeline/raw/master/salsa-ci.yml
+  - https://salsa.debian.org/salsa-ci-team/pipeline/raw/master/pipeline-jobs.yml
+
+build:
+  variables:
+    DEB_BUILD_OPTIONS: noautodbgsym
+
+
+variables:
+  SALSA_CI_DISABLE_REPROTEST: 1
+  SALSA_CI_DISABLE_BLHC: 1

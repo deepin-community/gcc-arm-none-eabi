@@ -1,15 +1,63 @@
-Source: template-repository
-Section: unknown
+Source: gcc-arm-none-eabi
+Section: devel
 Priority: optional
-Maintainer: Tsic404 <liuheng@deepin.org>
-Build-Depends: debhelper (>= 11)
-Standards-Version: 4.1.3
-Homepage: https://github.com/deepin-community/template-repository
-#Vcs-Browser: https://salsa.debian.org/debian/deepin-community-template-repository
-#Vcs-Git: https://salsa.debian.org/debian/deepin-community-template-repository.git
+Maintainer: Agustin Henze <tin@debian.org>
+Uploaders: Keith Packard <keithp@keithp.com>,
+           Thomas Preud'homme <thomas.preudhomme@arm.com>
+Build-Depends:
+ autoconf2.69,
+ autogen,
+ autotools-dev,
+ binutils-arm-none-eabi,
+ bison,
+ debhelper (>= 9.0.0),
+ dh-autoreconf,
+ dejagnu,
+ flex,
+ gawk,
+ gettext,
+ libgmp-dev,
+ libmpc-dev,
+ libmpfr-dev,
+ libtool,
+ locales,
+ lsb-release,
+ lzma,
+ m4,
+ patchutils,
+ sharutils,
+ texinfo,
+ xz-utils,
+ zlib1g-dev,
+ subversion,
+ rename,
+ xz-utils,
+ libisl-dev,
+Standards-Version: 4.2.0
+Rules-Requires-Root: no
+Homepage: https://developer.arm.com/open-source/gnu-toolchain/gnu-rm
+Vcs-Git: https://salsa.debian.org/debian/gcc-arm-none-eabi.git
+Vcs-Browser: https://salsa.debian.org/debian/gcc-arm-none-eabi
 
-Package: template-repository
+Package: gcc-arm-none-eabi
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: <insert up to 60 chars description>
- <insert long description, indented with spaces>
+Multi-Arch: foreign
+Depends: ${misc:Depends}, ${shlibs:Depends}, binutils-arm-none-eabi
+Recommends: libnewlib-arm-none-eabi
+Breaks: libnewlib-dev (<= 2.4.0.20160527-4), libstdc++-arm-none-eabi-newlib (<= 15:6.3.1+svn253039-1+10)
+Description: GCC cross compiler for ARM Cortex-R/M processors
+ Bare metal C and C++ compiler for embedded ARM chips using Cortex-M, and
+ Cortex-R processors.
+ This package is based on the GNU ARM toolchain provided by ARM.
+
+Package: gcc-arm-none-eabi-source
+Architecture: all
+Multi-Arch: foreign
+Depends: ${misc:Depends}
+Description: GCC cross compiler for ARM Cortex-R/M processors (source)
+ Bare metal C and C++ compiler for embedded ARM chips using Cortex-M, and
+ Cortex-R processors.
+ This package is based on the GNU ARM toolchain provided by ARM.
+ .
+ This package contains the sources and patches which are needed
+ to build the GNU Compiler Collection (GCC) for embedded ARM chips.
