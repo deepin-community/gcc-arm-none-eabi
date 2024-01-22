@@ -1,5 +1,5 @@
 /* Help friends in C++.
-   Copyright (C) 1997-2022 Free Software Foundation, Inc.
+   Copyright (C) 1997-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -131,6 +131,8 @@ is_friend (tree type, tree supplicant)
     {
       if (DECL_FUNCTION_MEMBER_P (supplicant))
 	context = DECL_CONTEXT (supplicant);
+      else if (tree fc = DECL_FRIEND_CONTEXT (supplicant))
+	context = fc;
       else
 	context = NULL_TREE;
     }
@@ -485,19 +487,32 @@ make_friend_class (tree type, tree friend_type, bool complain)
 }
 
 /* Record DECL (a FUNCTION_DECL) as a friend of the
-   CURRENT_CLASS_TYPE.  If DECL is a member function, CTYPE is the
+   CURRENT_CLASS_TYPE.  If DECL is a member function, SCOPE is the
    class of which it is a member, as named in the friend declaration.
+   If the friend declaration was explicitly namespace-qualified, SCOPE
+   is that namespace.
    DECLARATOR is the name of the friend.  FUNCDEF_FLAG is true if the
    friend declaration is a definition of the function.  FLAGS is as
    for grokclass fn.  */
 
 tree
-do_friend (tree ctype, tree declarator, tree decl,
+do_friend (tree scope, tree declarator, tree decl,
 	   enum overload_flags flags,
 	   bool funcdef_flag)
 {
   gcc_assert (TREE_CODE (decl) == FUNCTION_DECL);
-  gcc_assert (!ctype || MAYBE_CLASS_TYPE_P (ctype));
+
+  tree ctype = NULL_TREE;
+  tree in_namespace = NULL_TREE;
+  if (!scope)
+    ;
+  else if (MAYBE_CLASS_TYPE_P (scope))
+    ctype = scope;
+  else
+    {
+      gcc_checking_assert (TREE_CODE (scope) == NAMESPACE_DECL);
+      in_namespace = scope;
+    }
 
   /* Friend functions are unique, until proved otherwise.  */
   DECL_UNIQUE_FRIEND_P (decl) = 1;
@@ -617,7 +632,7 @@ do_friend (tree ctype, tree declarator, tree decl,
 	       parameters.  Instead, we call pushdecl when the class
 	       is instantiated.  */
 	    decl = push_template_decl (decl, /*is_friend=*/true);
-	  else if (current_function_decl)
+	  else if (current_function_decl && !in_namespace)
 	    /* pushdecl will check there's a local decl already.  */
 	    decl = pushdecl (decl, /*hiding=*/true);
 	  else

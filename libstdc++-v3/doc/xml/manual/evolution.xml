@@ -915,6 +915,13 @@ Calling a <code>std::bind</code> result as volatile was deprecated for C++17.
   <filename>libstdc++.so.8</filename>.
 </para>
 
+<para>
+  The extension allowing containers to be instantiated with an allocator
+  that doesn't match the container's value type is no longer allowed in
+  strict (<option>-std=c++NN</option>) modes, only in
+  <option>-std=gnu++NN</option> modes.
+</para>
+
 </section>
 
 <section xml:id="api.rel_91"><info><title><constant>9</constant></title></info>
@@ -998,6 +1005,12 @@ Calling a <code>std::bind</code> result as volatile was deprecated for C++17.
   added.
 </para>
 
+<para>
+  The extension allowing containers to be instantiated with an allocator
+  that doesn't match the container's value type is no longer allowed in
+  C++20 mode, even in non-strict <option>-std=gnu++20</option> mode.
+</para>
+
 </section>
 
 <section xml:id="api.rel_111"><info><title><constant>11</constant></title></info>
@@ -1076,6 +1089,15 @@ the process.
 <para>
 Calling a <code>std::bind</code> result as volatile is ill-formed for C++20
 and later.
+</para>
+
+</section>
+
+<section xml:id="api.rel_131"><info><title><constant>13</constant></title></info>
+
+<para>
+Tunables <variable>glibcxx.eh_pool.obj_count</variable> and
+<variable>glibcxx.eh_pool.obj_size</variable> were added.
 </para>
 
 </section>

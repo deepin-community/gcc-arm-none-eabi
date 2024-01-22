@@ -1,5 +1,5 @@
 /* Tree based points-to analysis
-   Copyright (C) 2005-2022 Free Software Foundation, Inc.
+   Copyright (C) 2005-2023 Free Software Foundation, Inc.
    Contributed by Daniel Berlin <dberlin@dberlin.org>
 
    This file is part of GCC.
@@ -1581,64 +1581,6 @@ unify_nodes (constraint_graph_t graph, unsigned int to, unsigned int from,
     bitmap_clear_bit (graph->succs[to], to);
 }
 
-/* Information needed to compute the topological ordering of a graph.  */
-
-struct topo_info
-{
-  /* sbitmap of visited nodes.  */
-  sbitmap visited;
-  /* Array that stores the topological order of the graph, *in
-     reverse*.  */
-  vec<unsigned> topo_order;
-};
-
-
-/* Initialize and return a topological info structure.  */
-
-static struct topo_info *
-init_topo_info (void)
-{
-  size_t size = graph->size;
-  struct topo_info *ti = XNEW (struct topo_info);
-  ti->visited = sbitmap_alloc (size);
-  bitmap_clear (ti->visited);
-  ti->topo_order.create (1);
-  return ti;
-}
-
-
-/* Free the topological sort info pointed to by TI.  */
-
-static void
-free_topo_info (struct topo_info *ti)
-{
-  sbitmap_free (ti->visited);
-  ti->topo_order.release ();
-  free (ti);
-}
-
-/* Visit the graph in topological order, and store the order in the
-   topo_info structure.  */
-
-static void
-topo_visit (constraint_graph_t graph, struct topo_info *ti,
-	    unsigned int n)
-{
-  bitmap_iterator bi;
-  unsigned int j;
-
-  bitmap_set_bit (ti->visited, n);
-
-  if (graph->succs[n])
-    EXECUTE_IF_SET_IN_BITMAP (graph->succs[n], 0, j, bi)
-      {
-	if (!bitmap_bit_p (ti->visited, j))
-	  topo_visit (graph, ti, j);
-      }
-
-  ti->topo_order.safe_push (n);
-}
-
 /* Process a constraint C that represents x = *(y + off), using DELTA as the
    starting solution for y.  */
 
@@ -1913,19 +1855,56 @@ find_indirect_cycles (constraint_graph_t graph)
       scc_visit (graph, &si, i);
 }
 
-/* Compute a topological ordering for GRAPH, and store the result in the
-   topo_info structure TI.  */
+/* Visit the graph in topological order starting at node N, and store the
+   order in TOPO_ORDER using VISITED to indicate visited nodes.  */
 
 static void
-compute_topo_order (constraint_graph_t graph,
-		    struct topo_info *ti)
+topo_visit (constraint_graph_t graph, vec<unsigned> &topo_order,
+	    sbitmap visited, unsigned int n)
+{
+  bitmap_iterator bi;
+  unsigned int j;
+
+  bitmap_set_bit (visited, n);
+
+  if (graph->succs[n])
+    EXECUTE_IF_SET_IN_BITMAP (graph->succs[n], 0, j, bi)
+      {
+	unsigned k = find (j);
+	if (!bitmap_bit_p (visited, k))
+	  topo_visit (graph, topo_order, visited, k);
+      }
+
+  topo_order.quick_push (n);
+}
+
+/* Compute a topological ordering for GRAPH, and return the result.  */
+
+static auto_vec<unsigned>
+compute_topo_order (constraint_graph_t graph)
 {
   unsigned int i;
   unsigned int size = graph->size;
 
+  auto_sbitmap visited (size);
+  bitmap_clear (visited);
+
+  /* For the heuristic in add_graph_edge to work optimally make sure to
+     first visit the connected component of the graph containing
+     ESCAPED.  Do this by extracting the connected component
+     with ESCAPED and append that to all other components as solve_graph
+     pops from the order.  */
+  auto_vec<unsigned> tail (size);
+  topo_visit (graph, tail, visited, find (escaped_id));
+
+  auto_vec<unsigned> topo_order (size);
+
   for (i = 0; i != size; ++i)
-    if (!bitmap_bit_p (ti->visited, i) && find (i) == i)
-      topo_visit (graph, ti, i);
+    if (!bitmap_bit_p (visited, i) && find (i) == i)
+      topo_visit (graph, topo_order, visited, i);
+
+  topo_order.splice (tail);
+  return topo_order;
 }
 
 /* Structure used to for hash value numbering of pointer equivalence
@@ -2753,17 +2732,14 @@ solve_graph (constraint_graph_t graph)
   while (!bitmap_empty_p (changed))
     {
       unsigned int i;
-      struct topo_info *ti = init_topo_info ();
       stats.iterations++;
 
       bitmap_obstack_initialize (&iteration_obstack);
 
-      compute_topo_order (graph, ti);
-
-      while (ti->topo_order.length () != 0)
+      auto_vec<unsigned> topo_order = compute_topo_order (graph);
+      while (topo_order.length () != 0)
 	{
-
-	  i = ti->topo_order.pop ();
+	  i = topo_order.pop ();
 
 	  /* If this variable is not a representative, skip it.  */
 	  if (find (i) != i)
@@ -2775,8 +2751,15 @@ solve_graph (constraint_graph_t graph)
 	    continue;
 
 	  /* If the node has changed, we need to process the
-	     complex constraints and outgoing edges again.  */
-	  if (bitmap_clear_bit (changed, i))
+	     complex constraints and outgoing edges again.  For complex
+	     constraints that modify i itself, like the common group of
+	       callarg = callarg + UNKNOWN;
+	       callarg = *callarg + UNKNOWN;
+	       *callarg = callescape;
+	     make sure to iterate immediately because that maximizes
+	     cache reuse and expands the graph quickest, leading to
+	     better visitation order in the next iteration.  */
+	  while (bitmap_clear_bit (changed, i))
 	    {
 	      unsigned int j;
 	      constraint_t c;
@@ -2794,7 +2777,7 @@ solve_graph (constraint_graph_t graph)
 		     ???  But we shouldn't ended up with "changed" set ...  */
 		  if (vi->oldsolution
 		      && bitmap_bit_p (vi->oldsolution, anything_id))
-		    continue;
+		    break;
 		  bitmap_copy (pts, get_varinfo (find (anything_id))->solution);
 		}
 	      else if (vi->oldsolution)
@@ -2803,7 +2786,7 @@ solve_graph (constraint_graph_t graph)
 		bitmap_copy (pts, vi->solution);
 
 	      if (bitmap_empty_p (pts))
-		continue;
+		break;
 
 	      if (vi->oldsolution)
 		bitmap_ior_into (vi->oldsolution, pts);
@@ -2888,7 +2871,6 @@ solve_graph (constraint_graph_t graph)
 		}
 	    }
 	}
-      free_topo_info (ti);
       bitmap_obstack_release (&iteration_obstack);
     }
 
@@ -4408,17 +4390,17 @@ handle_lhs_call (gcall *stmt, tree lhs, int flags, vec<ce_s> &rhsc,
       && (flags & ERF_RETURN_ARG_MASK) < gimple_call_num_args (stmt))
     {
       tree arg;
-      rhsc.create (0);
+      rhsc.truncate (0);
       arg = gimple_call_arg (stmt, flags & ERF_RETURN_ARG_MASK);
       get_constraint_for (arg, &rhsc);
       process_all_all_constraints (lhsc, rhsc);
-      rhsc.release ();
+      rhsc.truncate (0);
     }
   else if (flags & ERF_NOALIAS)
     {
       varinfo_t vi;
       struct constraint_expr tmpc;
-      rhsc.create (0);
+      rhsc.truncate (0);
       vi = make_heapvar ("HEAP", true);
       /* We are marking allocated storage local, we deal with it becoming
          global by escaping and setting of vars_contains_escaped_heap.  */
@@ -4435,7 +4417,7 @@ handle_lhs_call (gcall *stmt, tree lhs, int flags, vec<ce_s> &rhsc,
       tmpc.type = ADDRESSOF;
       rhsc.safe_push (tmpc);
       process_all_all_constraints (lhsc, rhsc);
-      rhsc.release ();
+      rhsc.truncate (0);
     }
   else
     process_all_all_constraints (lhsc, rhsc);
@@ -8085,7 +8067,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return flag_tree_pta; }
+  bool gate (function *) final override { return flag_tree_pta; }
 
 }; // class pass_build_alias
 
@@ -8123,7 +8105,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return flag_tree_pta; }
+  bool gate (function *) final override { return flag_tree_pta; }
 
 }; // class pass_build_ealias
 
@@ -8737,7 +8719,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return (optimize
 	      && flag_ipa_pta
@@ -8745,9 +8727,12 @@ public:
 	      && !seen_error ());
     }
 
-  opt_pass * clone () { return new pass_ipa_pta (m_ctxt); }
+  opt_pass * clone () final override { return new pass_ipa_pta (m_ctxt); }
 
-  virtual unsigned int execute (function *) { return ipa_pta_execute (); }
+  unsigned int execute (function *) final override
+  {
+    return ipa_pta_execute ();
+  }
 
 }; // class pass_ipa_pta
 

@@ -1,6 +1,6 @@
 // Map implementation -*- C++ -*-
 
-// Copyright (C) 2001-2022 Free Software Foundation, Inc.
+// Copyright (C) 2001-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -76,6 +76,8 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
    *  retrieved based on a key, in logarithmic time.
    *
    *  @ingroup associative_containers
+   *  @headerfile map
+   *  @since C++98
    *
    *  @tparam _Key  Type of key objects.
    *  @tparam  _Tp  Type of mapped objects.
@@ -847,7 +849,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	{
 #if __cplusplus >= 201703L
 	  using _P2 = remove_reference_t<_Pair>;
-	  if constexpr (__is_pair<_P2>)
+	  if constexpr (__is_pair<remove_const_t<_P2>>)
 	    if constexpr (is_same_v<allocator_type, allocator<value_type>>)
 	      if constexpr (__usable_key<typename _P2::first_type>)
 		{

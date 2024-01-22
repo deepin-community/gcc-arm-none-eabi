@@ -1,3 +1,15 @@
+gcc-arm-none-eabi (15:13.2.rel1-1) unstable; urgency=medium
+
+  * New upstream 13.2.rel1
+
+ -- Keith Packard <keithp@keithp.com>  Thu, 18 Jan 2024 13:16:47 -0800
+
+gcc-arm-none-eabi (15:12.3.rel1-1) unstable; urgency=medium
+
+  * New upstream 12.3.rel1
+
+ -- Keith Packard <keithp@keithp.com>  Thu, 10 Aug 2023 18:01:27 -0700
+
 gcc-arm-none-eabi (15:12.2.rel1-1) unstable; urgency=medium
 
   * New upstream 12.2.rel1
@@ -301,4 +313,3 @@ gcc-arm-none-eabi (1) unstable; urgency=low
   * Initial release.
 
  -- Keith Packard <keithp@keithp.com>  Sun, 18 Aug 2013 02:49:03 +0200
-

@@ -1,5 +1,5 @@
 /* Loop distribution.
-   Copyright (C) 2006-2022 Free Software Foundation, Inc.
+   Copyright (C) 2006-2023 Free Software Foundation, Inc.
    Contributed by Georges-Andre Silber <Georges-Andre.Silber@ensmp.fr>
    and Sebastian Pop <sebastian.pop@amd.com>.
 
@@ -942,7 +942,7 @@ stmt_has_scalar_dependences_outside_loop (loop_p loop, gimple *stmt)
 /* Return a copy of LOOP placed before LOOP.  */
 
 static class loop *
-copy_loop_before (class loop *loop)
+copy_loop_before (class loop *loop, bool redirect_lc_phi_defs)
 {
   class loop *res;
   edge preheader = loop_preheader_edge (loop);
@@ -950,6 +950,24 @@ copy_loop_before (class loop *loop)
   initialize_original_copy_tables ();
   res = slpeel_tree_duplicate_loop_to_edge_cfg (loop, NULL, preheader);
   gcc_assert (res != NULL);
+
+  /* When a not last partition is supposed to keep the LC PHIs computed
+     adjust their definitions.  */
+  if (redirect_lc_phi_defs)
+    {
+      edge exit = single_exit (loop);
+      for (gphi_iterator si = gsi_start_phis (exit->dest); !gsi_end_p (si);
+	   gsi_next (&si))
+	{
+	  gphi *phi = si.phi ();
+	  if (virtual_operand_p (gimple_phi_result (phi)))
+	    continue;
+	  use_operand_p use_p = PHI_ARG_DEF_PTR_FROM_EDGE (phi, exit);
+	  tree new_def = get_current_def (USE_FROM_PTR (use_p));
+	  SET_USE (use_p, new_def);
+	}
+    }
+
   free_original_copy_tables ();
   delete_update_ssa ();
 
@@ -977,7 +995,7 @@ create_bb_after_loop (class loop *loop)
 
 static void
 generate_loops_for_partition (class loop *loop, partition *partition,
-			      bool copy_p)
+			      bool copy_p, bool keep_lc_phis_p)
 {
   unsigned i;
   basic_block *bbs;
@@ -985,7 +1003,7 @@ generate_loops_for_partition (class loop *loop, partition *partition,
   if (copy_p)
     {
       int orig_loop_num = loop->orig_loop_num;
-      loop = copy_loop_before (loop);
+      loop = copy_loop_before (loop, keep_lc_phis_p);
       gcc_assert (loop != NULL);
       loop->orig_loop_num = orig_loop_num;
       create_preheader (loop, CP_SIMPLE_PREHEADERS);
@@ -1336,7 +1354,8 @@ destroy_loop (class loop *loop)
 
 static bool 
 generate_code_for_partition (class loop *loop,
-			     partition *partition, bool copy_p)
+			     partition *partition, bool copy_p,
+			     bool keep_lc_phis_p)
 {
   switch (partition->kind)
     {
@@ -1345,7 +1364,8 @@ generate_code_for_partition (class loop *loop,
       /* Reductions all have to be in the last partition.  */
       gcc_assert (!partition_reduction_p (partition)
 		  || !copy_p);
-      generate_loops_for_partition (loop, partition, copy_p);
+      generate_loops_for_partition (loop, partition, copy_p,
+				    keep_lc_phis_p);
       return false;
 
     case PKIND_MEMSET:
@@ -2778,7 +2798,7 @@ version_loop_by_alias_check (vec<struct partition *> *partitions,
       gimple_stmt_iterator cond_gsi = gsi_last_bb (cond_bb);
       gsi_insert_seq_before (&cond_gsi, cond_stmts, GSI_SAME_STMT);
     }
-  update_ssa (TODO_update_ssa);
+  update_ssa (TODO_update_ssa_no_phi);
 }
 
 /* Return true if loop versioning is needed to distrubute PARTITIONS.
@@ -3040,6 +3060,7 @@ loop_distribution::distribute_loop (class loop *loop,
 
   bool any_builtin = false;
   bool reduction_in_all = false;
+  int reduction_partition_num = -1;
   FOR_EACH_VEC_ELT (partitions, i, partition)
     {
       reduction_in_all
@@ -3096,10 +3117,7 @@ loop_distribution::distribute_loop (class loop *loop,
   for (i = 0; partitions.iterate (i, &into); ++i)
     {
       bool changed = false;
-      if (partition_builtin_p (into) || into->kind == PKIND_PARTIAL_MEMSET)
-	continue;
-      for (int j = i + 1;
-	   partitions.iterate (j, &partition); ++j)
+      for (int j = i + 1; partitions.iterate (j, &partition); ++j)
 	{
 	  if (share_memory_accesses (rdg, into, partition))
 	    {
@@ -3119,10 +3137,13 @@ loop_distribution::distribute_loop (class loop *loop,
     }
 
   /* Put a non-builtin partition last if we need to preserve a reduction.
-     ???  This is a workaround that makes sort_partitions_by_post_order do
-     the correct thing while in reality it should sort each component
-     separately and then put the component with a reduction or a non-builtin
-     last.  */
+     In most cases this helps to keep a normal partition last avoiding to
+     spill a reduction result across builtin calls.
+     ???  The proper way would be to use dependences to see whether we
+     can move builtin partitions earlier during merge_dep_scc_partitions
+     and its sort_partitions_by_post_order.  Especially when the
+     dependence graph is composed of multiple independent subgraphs the
+     heuristic does not work reliably.  */
   if (reduction_in_all
       && partition_builtin_p (partitions.last()))
     FOR_EACH_VEC_ELT (partitions, i, partition)
@@ -3153,19 +3174,20 @@ loop_distribution::distribute_loop (class loop *loop,
 
   finalize_partitions (loop, &partitions, &alias_ddrs);
 
-  /* If there is a reduction in all partitions make sure the last one
-     is not classified for builtin code generation.  */
+  /* If there is a reduction in all partitions make sure the last
+     non-builtin partition provides the LC PHI defs.  */
   if (reduction_in_all)
     {
-      partition = partitions.last ();
-      if (only_patterns_p
-	  && partition_builtin_p (partition)
-	  && !partition_builtin_p (partitions[0]))
+      FOR_EACH_VEC_ELT (partitions, i, partition)
+	if (!partition_builtin_p (partition))
+	  reduction_partition_num = i;
+      if (reduction_partition_num == -1)
 	{
-	  nbp = 0;
-	  goto ldist_done;
+	  /* If all partitions are builtin, force the last one to
+	     be code generated as normal partition.  */
+	  partition = partitions.last ();
+	  partition->kind = PKIND_NORMAL;
 	}
-      partition->kind = PKIND_NORMAL;
     }
 
   nbp = partitions.length ();
@@ -3191,7 +3213,8 @@ loop_distribution::distribute_loop (class loop *loop,
     {
       if (partition_builtin_p (partition))
 	(*nb_calls)++;
-      *destroy_p |= generate_code_for_partition (loop, partition, i < nbp - 1);
+      *destroy_p |= generate_code_for_partition (loop, partition, i < nbp - 1,
+						 i == reduction_partition_num);
     }
 
  ldist_done:
@@ -3833,7 +3856,7 @@ loop_distribution::execute (function *fun)
 	{
 	  auto_vec<gimple *> work_list;
 	  if (!find_seed_stmts_for_distribution (loop, &work_list))
-	    break;
+	    continue;
 
 	  const char *str = loop->inner ? " nest" : "";
 	  dump_user_location_t loc = find_loop_location (loop);
@@ -3924,13 +3947,13 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return flag_tree_loop_distribution
 	|| flag_tree_loop_distribute_patterns;
     }
 
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 }; // class pass_loop_distribution
 

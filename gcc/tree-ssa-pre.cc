@@ -1,5 +1,5 @@
 /* Full and partial redundancy elimination and code hoisting on SSA GIMPLE.
-   Copyright (C) 2001-2022 Free Software Foundation, Inc.
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
    Contributed by Daniel Berlin <dan@dberlin.org> and Steven Bosscher
    <stevenb@suse.de>
 
@@ -34,10 +34,10 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimple-pretty-print.h"
 #include "fold-const.h"
 #include "cfganal.h"
+#include "gimple-iterator.h"
 #include "gimple-fold.h"
 #include "tree-eh.h"
 #include "gimplify.h"
-#include "gimple-iterator.h"
 #include "tree-cfg.h"
 #include "tree-into-ssa.h"
 #include "tree-dfa.h"
@@ -384,18 +384,6 @@ lookup_expression_id (const pre_expr expr)
     }
 }
 
-/* Return the existing expression id for EXPR, or create one if one
-   does not exist yet.  */
-
-static inline unsigned int
-get_or_alloc_expression_id (pre_expr expr)
-{
-  unsigned int id = lookup_expression_id (expr);
-  if (id == 0)
-    return alloc_expression_id (expr);
-  return expr->id = id;
-}
-
 /* Return the expression that has expression id ID */
 
 static inline pre_expr
@@ -729,7 +717,7 @@ add_to_value (unsigned int v, pre_expr e)
 	  set = BITMAP_ALLOC (&grand_bitmap_obstack);
 	  value_expressions[v] = set;
 	}
-      bitmap_set_bit (set, get_or_alloc_expression_id (e));
+      bitmap_set_bit (set, get_expression_id (e));
     }
 }
 
@@ -792,7 +780,7 @@ bitmap_insert_into_set (bitmap_set_t set, pre_expr expr)
          for the same value to appear in a set.  This is needed for
 	 TMP_GEN, PHI_GEN and NEW_SETs.  */
       bitmap_set_bit (&set->values, val);
-      bitmap_set_bit (&set->expressions, get_or_alloc_expression_id (expr));
+      bitmap_set_bit (&set->expressions, get_expression_id (expr));
     }
 }
 
@@ -1030,7 +1018,7 @@ bitmap_value_insert_into_set (bitmap_set_t set, pre_expr expr)
 {
   unsigned int val = get_expr_value_id (expr);
 
-  gcc_checking_assert (expr->id == get_or_alloc_expression_id (expr));
+  gcc_checking_assert (expr->id == get_expression_id (expr));
 
   /* Constant values are always considered to be part of the set.  */
   if (value_id_constant_p (val))
@@ -2376,11 +2364,14 @@ compute_partial_antic_aux (basic_block block,
 	      unsigned int i;
 	      bitmap_iterator bi;
 
-	      FOR_EACH_EXPR_ID_IN_SET (ANTIC_IN (e->dest), i, bi)
-		bitmap_value_insert_into_set (PA_OUT,
-					      expression_for_id (i));
 	      if (!gimple_seq_empty_p (phi_nodes (e->dest)))
 		{
+		  bitmap_set_t antic_in = bitmap_set_new ();
+		  phi_translate_set (antic_in, ANTIC_IN (e->dest), e);
+		  FOR_EACH_EXPR_ID_IN_SET (antic_in, i, bi)
+		    bitmap_value_insert_into_set (PA_OUT,
+						  expression_for_id (i));
+		  bitmap_set_free (antic_in);
 		  bitmap_set_t pa_in = bitmap_set_new ();
 		  phi_translate_set (pa_in, PA_IN (e->dest), e);
 		  FOR_EACH_EXPR_ID_IN_SET (pa_in, i, bi)
@@ -2389,9 +2380,14 @@ compute_partial_antic_aux (basic_block block,
 		  bitmap_set_free (pa_in);
 		}
 	      else
-		FOR_EACH_EXPR_ID_IN_SET (PA_IN (e->dest), i, bi)
-		  bitmap_value_insert_into_set (PA_OUT,
-						expression_for_id (i));
+		{
+		  FOR_EACH_EXPR_ID_IN_SET (ANTIC_IN (e->dest), i, bi)
+		    bitmap_value_insert_into_set (PA_OUT,
+						  expression_for_id (i));
+		  FOR_EACH_EXPR_ID_IN_SET (PA_IN (e->dest), i, bi)
+		    bitmap_value_insert_into_set (PA_OUT,
+						  expression_for_id (i));
+		}
 	    }
 	}
     }
@@ -3252,14 +3248,11 @@ insert_into_preds_of_block (basic_block block, unsigned int exprnum,
 	  && r.kind () == VR_RANGE
 	  && !wi::neg_p (r.lower_bound (), SIGNED)
 	  && !wi::neg_p (r.upper_bound (), SIGNED))
-	/* Just handle extension and sign-changes of all-positive ranges.  */
-	set_range_info (temp, VR_RANGE,
-			wide_int_storage::from (r.lower_bound (),
-						TYPE_PRECISION (type),
-						TYPE_SIGN (type)),
-			wide_int_storage::from (r.upper_bound (),
-						TYPE_PRECISION (type),
-						TYPE_SIGN (type)));
+	{
+	  /* Just handle extension and sign-changes of all-positive ranges.  */
+	  range_cast (r, type);
+	  set_range_info (temp, r);
+	}
     }
 
   if (dump_file && (dump_flags & TDF_DETAILS))
@@ -4188,8 +4181,10 @@ compute_avail (function *fun)
 		      /* TBAA behavior is an obvious part so make sure
 		         that the hashtable one covers this as well
 			 by adjusting the ref alias set and its base.  */
-		      if (ref->set == set
-			  || alias_set_subset_of (set, ref->set))
+		      if ((ref->set == set
+			   || alias_set_subset_of (set, ref->set))
+			  && (ref->base_set == base_set
+			      || alias_set_subset_of (base_set, ref->base_set)))
 			;
 		      else if (ref1->opcode != ref2->opcode
 			       || (ref1->opcode != MEM_REF
@@ -4201,21 +4196,25 @@ compute_avail (function *fun)
 			  operands.release ();
 			  continue;
 			}
-		      else if (alias_set_subset_of (ref->set, set))
+		      else if (ref->set == set
+			       || alias_set_subset_of (ref->set, set))
 			{
+			  tree reft = reference_alias_ptr_type (rhs1);
 			  ref->set = set;
+			  ref->base_set = set;
 			  if (ref1->opcode == MEM_REF)
 			    ref1->op0
-			      = wide_int_to_tree (TREE_TYPE (ref2->op0),
+			      = wide_int_to_tree (reft,
 						  wi::to_wide (ref1->op0));
 			  else
 			    ref1->op2
-			      = wide_int_to_tree (TREE_TYPE (ref2->op2),
+			      = wide_int_to_tree (reft,
 						  wi::to_wide (ref1->op2));
 			}
 		      else
 			{
 			  ref->set = 0;
+			  ref->base_set = 0;
 			  if (ref1->opcode == MEM_REF)
 			    ref1->op0
 			      = wide_int_to_tree (ptr_type_node,
@@ -4360,9 +4359,9 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     { return flag_tree_pre != 0 || flag_code_hoisting != 0; }
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 }; // class pass_pre
 

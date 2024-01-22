@@ -1,5 +1,5 @@
 /* Declaration statement matcher
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -423,7 +423,8 @@ match_data_constant (gfc_expr **result)
 	 data-pointer-initialization compatible (7.5.4.6) with the initial
 	 data target; the data statement object is initially associated
 	 with the target.  */
-      if ((*result)->symtree->n.sym->attr.save
+      if ((*result)->symtree
+	  && (*result)->symtree->n.sym->attr.save
 	  && (*result)->symtree->n.sym->attr.target)
 	return m;
       gfc_free_expr (*result);
@@ -1956,6 +1957,45 @@ gfc_free_enum_history (void)
 }
 
 
+/* Function to fix initializer character length if the length of the
+   symbol or component is constant.  */
+
+static bool
+fix_initializer_charlen (gfc_typespec *ts, gfc_expr *init)
+{
+  if (!gfc_specification_expr (ts->u.cl->length))
+    return false;
+
+  int k = gfc_validate_kind (BT_INTEGER, gfc_charlen_int_kind, false);
+
+  /* resolve_charlen will complain later on if the length
+     is too large.  Just skip the initialization in that case.  */
+  if (mpz_cmp (ts->u.cl->length->value.integer,
+	       gfc_integer_kinds[k].huge) <= 0)
+    {
+      HOST_WIDE_INT len
+		= gfc_mpz_get_hwi (ts->u.cl->length->value.integer);
+
+      if (init->expr_type == EXPR_CONSTANT)
+	gfc_set_constant_character_len (len, init, -1);
+      else if (init->expr_type == EXPR_ARRAY)
+	{
+	  gfc_constructor *cons;
+
+	  /* Build a new charlen to prevent simplification from
+	     deleting the length before it is resolved.  */
+	  init->ts.u.cl = gfc_new_charlen (gfc_current_ns, NULL);
+	  init->ts.u.cl->length = gfc_copy_expr (ts->u.cl->length);
+	  cons = gfc_constructor_first (init->value.constructor);
+	  for (; cons; cons = gfc_constructor_next (cons))
+	    gfc_set_constant_character_len (len, cons->expr, -1);
+	}
+    }
+
+  return true;
+}
+
+
 /* Function called by variable_decl() that adds an initialization
    expression to a symbol.  */
 
@@ -2069,40 +2109,10 @@ add_init_expr_to_sym (const char *name, gfc_expr **initp, locus *var_locus)
 				gfc_copy_expr (init->ts.u.cl->length);
 		}
 	    }
-	  /* Update initializer character length according symbol.  */
-	  else if (sym->ts.u.cl->length->expr_type == EXPR_CONSTANT)
-	    {
-	      if (!gfc_specification_expr (sym->ts.u.cl->length))
-		return false;
-
-	      int k = gfc_validate_kind (BT_INTEGER, gfc_charlen_int_kind,
-					 false);
-	      /* resolve_charlen will complain later on if the length
-		 is too large.  Just skeep the initialization in that case.  */
-	      if (mpz_cmp (sym->ts.u.cl->length->value.integer,
-			   gfc_integer_kinds[k].huge) <= 0)
-		{
-		  HOST_WIDE_INT len
-		    = gfc_mpz_get_hwi (sym->ts.u.cl->length->value.integer);
-
-		  if (init->expr_type == EXPR_CONSTANT)
-		    gfc_set_constant_character_len (len, init, -1);
-		  else if (init->expr_type == EXPR_ARRAY)
-		    {
-		      gfc_constructor *c;
-
-		      /* Build a new charlen to prevent simplification from
-			 deleting the length before it is resolved.  */
-		      init->ts.u.cl = gfc_new_charlen (gfc_current_ns, NULL);
-		      init->ts.u.cl->length
-			= gfc_copy_expr (sym->ts.u.cl->length);
-
-		      for (c = gfc_constructor_first (init->value.constructor);
-			   c; c = gfc_constructor_next (c))
-			gfc_set_constant_character_len (len, c->expr, -1);
-		    }
-		}
-	    }
+	  /* Update initializer character length according to symbol.  */
+	  else if (sym->ts.u.cl->length->expr_type == EXPR_CONSTANT
+		   && !fix_initializer_charlen (&sym->ts, init))
+	    return false;
 	}
 
       if (sym->attr.flavor == FL_PARAMETER && sym->attr.dimension && sym->as
@@ -2129,10 +2139,21 @@ add_init_expr_to_sym (const char *name, gfc_expr **initp, locus *var_locus)
 	  /* The shape may be NULL for EXPR_ARRAY, set it.  */
 	  if (init->shape == NULL)
 	    {
-	      gcc_assert (init->expr_type == EXPR_ARRAY);
+	      if (init->expr_type != EXPR_ARRAY)
+		{
+		  gfc_error ("Bad shape of initializer at %L", &init->where);
+		  return false;
+		}
+
 	      init->shape = gfc_get_shape (1);
 	      if (!gfc_array_size (init, &init->shape[0]))
-		  gfc_internal_error ("gfc_array_size failed");
+		{
+		  gfc_error ("Cannot determine shape of initializer at %L",
+			     &init->where);
+		  free (init->shape);
+		  init->shape = NULL;
+		  return false;
+		}
 	    }
 
 	  for (dim = 0; dim < sym->as->rank; ++dim)
@@ -2207,6 +2228,14 @@ add_init_expr_to_sym (const char *name, gfc_expr **initp, locus *var_locus)
 	  sym->attr.is_c_interop |= init->ts.is_c_interop;
 	  if (init->ts.is_iso_c)
 	    sym->ts.f90_type = init->ts.f90_type;
+	}
+
+      /* Catch the case:  type(t), parameter :: x = z'1'.  */
+      if (sym->ts.type == BT_DERIVED && init->ts.type == BT_BOZ)
+	{
+	  gfc_error ("Entity %qs at %L is incompatible with a BOZ "
+		     "literal constant", name, &sym->declared_at);
+	  return false;
 	}
 
       /* Add initializer.  Make sure we keep the ranks sane.  */
@@ -2346,6 +2375,13 @@ build_struct (const char *name, gfc_charlen *cl, gfc_expr **init,
 
   c->initializer = *init;
   *init = NULL;
+
+  /* Update initializer character length according to component.  */
+  if (c->ts.type == BT_CHARACTER && c->ts.u.cl->length
+      && c->ts.u.cl->length->expr_type == EXPR_CONSTANT
+      && c->initializer && c->initializer->ts.type == BT_CHARACTER
+      && !fix_initializer_charlen (&c->ts, c->initializer))
+    return false;
 
   c->as = *as;
   if (c->as != NULL)
@@ -5978,10 +6014,14 @@ verify_bind_c_sym (gfc_symbol *tmp_sym, gfc_typespec *ts,
 	    }
 	  else
 	    {
-              if (tmp_sym->ts.type == BT_DERIVED || ts->type == BT_DERIVED)
-                gfc_error ("Type declaration %qs at %L is not C "
-                           "interoperable but it is BIND(C)",
-                           tmp_sym->name, &(tmp_sym->declared_at));
+	      if (tmp_sym->ts.type == BT_DERIVED || ts->type == BT_DERIVED
+		  || tmp_sym->ts.type == BT_CLASS || ts->type == BT_CLASS)
+		{
+		  gfc_error ("Type declaration %qs at %L is not C "
+			     "interoperable but it is BIND(C)",
+			     tmp_sym->name, &(tmp_sym->declared_at));
+		  retval = false;
+		}
               else if (warn_c_binding_type)
                 gfc_warning (OPT_Wc_binding_type, "Variable %qs at %L "
                              "may not be a C interoperable "
@@ -8716,43 +8756,23 @@ attr_decl1 (void)
 	}
     }
 
-  /* Update symbol table.  DIMENSION attribute is set in
-     gfc_set_array_spec().  For CLASS variables, this must be applied
-     to the first component, or '_data' field.  */
-  if (sym->ts.type == BT_CLASS && sym->ts.u.derived->attr.is_class)
-    {
-      /* gfc_set_array_spec sets sym->attr not CLASS_DATA(sym)->attr.  Check
-	 for duplicate attribute here.  */
-      if (CLASS_DATA(sym)->attr.dimension == 1 && as)
-	{
-	  gfc_error ("Duplicate DIMENSION attribute at %C");
-	  m = MATCH_ERROR;
-	  goto cleanup;
-	}
-
-      if (!gfc_copy_attr (&CLASS_DATA(sym)->attr, &current_attr, &var_locus))
-	{
-	  m = MATCH_ERROR;
-	  goto cleanup;
-	}
-    }
-  else
-    {
-      if (current_attr.dimension == 0 && current_attr.codimension == 0
-	  && !gfc_copy_attr (&sym->attr, &current_attr, &var_locus))
-	{
-	  m = MATCH_ERROR;
-	  goto cleanup;
-	}
-    }
-
   if (sym->ts.type == BT_CLASS
-      && !gfc_build_class_symbol (&sym->ts, &sym->attr, &sym->as))
+      && sym->ts.u.derived
+      && sym->ts.u.derived->attr.is_class)
+    {
+      sym->attr.pointer = CLASS_DATA(sym)->attr.class_pointer;
+      sym->attr.allocatable = CLASS_DATA(sym)->attr.allocatable;
+      sym->attr.dimension = CLASS_DATA(sym)->attr.dimension;
+      sym->attr.codimension = CLASS_DATA(sym)->attr.codimension;
+      if (CLASS_DATA (sym)->as)
+	sym->as = gfc_copy_array_spec (CLASS_DATA (sym)->as);
+    }
+  if (current_attr.dimension == 0 && current_attr.codimension == 0
+      && !gfc_copy_attr (&sym->attr, &current_attr, &var_locus))
     {
       m = MATCH_ERROR;
       goto cleanup;
     }
-
   if (!gfc_set_array_spec (sym, as, &var_locus))
     {
       m = MATCH_ERROR;
@@ -8776,6 +8796,24 @@ attr_decl1 (void)
   if ((current_attr.external || current_attr.intrinsic)
       && sym->attr.flavor != FL_PROCEDURE
       && !gfc_add_flavor (&sym->attr, FL_PROCEDURE, sym->name, NULL))
+    {
+      m = MATCH_ERROR;
+      goto cleanup;
+    }
+
+  if (sym->ts.type == BT_CLASS && sym->ts.u.derived->attr.is_class
+      && !as && !current_attr.pointer && !current_attr.allocatable
+      && !current_attr.external)
+    {
+      sym->attr.pointer = 0;
+      sym->attr.allocatable = 0;
+      sym->attr.dimension = 0;
+      sym->attr.codimension = 0;
+      gfc_free_array_spec (sym->as);
+      sym->as = NULL;
+    }
+  else if (sym->ts.type == BT_CLASS
+      && !gfc_build_class_symbol (&sym->ts, &sym->attr, &sym->as))
     {
       m = MATCH_ERROR;
       goto cleanup;
@@ -9973,9 +10011,10 @@ gfc_match_modproc (void)
   gfc_namespace *module_ns;
   gfc_interface *old_interface_head, *interface;
 
-  if ((gfc_state_stack->state != COMP_INTERFACE
-       && gfc_state_stack->state != COMP_CONTAINS)
-      || gfc_state_stack->previous == NULL
+  if (gfc_state_stack->previous == NULL
+      || (gfc_state_stack->state != COMP_INTERFACE
+	  && (gfc_state_stack->state != COMP_CONTAINS
+	      || gfc_state_stack->previous->state != COMP_INTERFACE))
       || current_interface.type == INTERFACE_NAMELESS
       || current_interface.type == INTERFACE_ABSTRACT)
     {
@@ -11706,6 +11745,9 @@ const ext_attr_t ext_attr_list[] = {
   { "fastcall",     EXT_ATTR_FASTCALL,     "fastcall"  },
   { "no_arg_check", EXT_ATTR_NO_ARG_CHECK, NULL        },
   { "deprecated",   EXT_ATTR_DEPRECATED,   NULL	       },
+  { "noinline",     EXT_ATTR_NOINLINE,     NULL	       },
+  { "noreturn",     EXT_ATTR_NORETURN,     NULL	       },
+  { "weak",	    EXT_ATTR_WEAK,	   NULL	       },
   { NULL,           EXT_ATTR_LAST,         NULL        }
 };
 

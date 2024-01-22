@@ -1,6 +1,6 @@
 // unordered_map implementation -*- C++ -*-
 
-// Copyright (C) 2010-2022 Free Software Foundation, Inc.
+// Copyright (C) 2010-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -29,6 +29,11 @@
 
 #ifndef _UNORDERED_MAP_H
 #define _UNORDERED_MAP_H
+
+#include <bits/hashtable.h>
+#include <bits/allocator.h>
+#include <bits/functional_hash.h> // hash
+#include <bits/stl_function.h>    // equal_to
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -78,6 +83,8 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
    *  with the keys.
    *
    *  @ingroup unordered_associative_containers
+   *  @headerfile unordered_map
+   *  @since C++11
    *
    *  @tparam  _Key    Type of key objects.
    *  @tparam  _Tp     Type of mapped objects.
@@ -1221,6 +1228,8 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
    *  values of another type with the keys.
    *
    *  @ingroup unordered_associative_containers
+   *  @headerfile unordered_map
+   *  @since C++11
    *
    *  @tparam  _Key    Type of key objects.
    *  @tparam  _Tp     Type of mapped objects.

@@ -1,6 +1,6 @@
 // Move, forward and identity for C++11 + swap -*- C++ -*-
 
-// Copyright (C) 2007-2022 Free Software Foundation, Inc.
+// Copyright (C) 2007-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -33,6 +33,8 @@
 #include <bits/c++config.h>
 #if __cplusplus < 201103L
 # include <bits/concept_check.h>
+#else
+# include <type_traits> // Brings in std::declval too.
 #endif
 
 namespace std _GLIBCXX_VISIBILITY(default)
@@ -50,15 +52,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     { return __builtin_addressof(__r); }
 
 #if __cplusplus >= 201103L
-
-_GLIBCXX_END_NAMESPACE_VERSION
-} // namespace
-
-#include <type_traits> // Brings in std::declval too.
-
-namespace std _GLIBCXX_VISIBILITY(default)
-{
-_GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   /**
    *  @addtogroup utilities

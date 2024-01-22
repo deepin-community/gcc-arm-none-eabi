@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (C) 2013-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright (C) 2013-2023 by The D Language Foundation, All Rights Reserved
  * https://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
  * https://www.boost.org/LICENSE_1_0.txt
@@ -10,6 +10,7 @@
 #pragma once
 
 #include "root/dsystem.h"
+#include "root/dcompat.h"   // for d_bool
 
 class Statement;
 class ErrorStatement;
@@ -265,6 +266,8 @@ class ShlAssignExp;
 class ShrAssignExp;
 class UshrAssignExp;
 class CatAssignExp;
+class CatElemAssignExp;
+class CatDcharAssignExp;
 class AddExp;
 class MinExp;
 class CatExp;
@@ -564,6 +567,10 @@ public:
     virtual void visit(UshrAssignExp *e) { visit((BinAssignExp *)e); }
     virtual void visit(CatAssignExp *e) { visit((BinAssignExp *)e); }
 
+    // CatAssignExp
+    virtual void visit(CatElemAssignExp *e) { visit((CatAssignExp *)e); }
+    virtual void visit(CatDcharAssignExp *e) { visit((CatAssignExp *)e); }
+
     // TemplateParameter
     virtual void visit(TemplateAliasParameter *tp) { visit((TemplateParameter *)tp); }
     virtual void visit(TemplateTypeParameter *tp) { visit((TemplateParameter *)tp); }
@@ -657,6 +664,6 @@ public:
 class StoppableVisitor : public Visitor
 {
 public:
-    bool stop;
+    d_bool stop;
     StoppableVisitor() : stop(false) {}
 };

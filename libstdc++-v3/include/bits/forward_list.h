@@ -1,6 +1,6 @@
 // <forward_list.h> -*- C++ -*-
 
-// Copyright (C) 2008-2022 Free Software Foundation, Inc.
+// Copyright (C) 2008-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -406,6 +406,8 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
    *  and fixed time insertion/deletion at any point in the sequence.
    *
    *  @ingroup sequences
+   *  @headerfile forward_list
+   *  @since C++11
    *
    *  @tparam _Tp  Type of element.
    *  @tparam _Alloc  Allocator type, defaults to allocator<_Tp>.
