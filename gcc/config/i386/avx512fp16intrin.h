@@ -1,4 +1,4 @@
-/* Copyright (C) 2019-2022 Free Software Foundation, Inc.
+/* Copyright (C) 2019-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -183,28 +183,31 @@ extern __inline __m128h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm_setzero_ph (void)
 {
-  return _mm_set1_ph (0.0f);
+  return _mm_set1_ph (0.0f16);
 }
 
 extern __inline __m256h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm256_setzero_ph (void)
 {
-  return _mm256_set1_ph (0.0f);
+  return _mm256_set1_ph (0.0f16);
 }
 
 extern __inline __m512h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm512_setzero_ph (void)
 {
-  return _mm512_set1_ph (0.0f);
+  return _mm512_set1_ph (0.0f16);
 }
 
 extern __inline __m128h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm_undefined_ph (void)
 {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winit-self"
   __m128h __Y = __Y;
+#pragma GCC diagnostic pop
   return __Y;
 }
 
@@ -212,7 +215,10 @@ extern __inline __m256h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm256_undefined_ph (void)
 {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winit-self"
   __m256h __Y = __Y;
+#pragma GCC diagnostic pop
   return __Y;
 }
 
@@ -220,7 +226,10 @@ extern __inline __m512h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm512_undefined_ph (void)
 {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winit-self"
   __m512h __Y = __Y;
+#pragma GCC diagnostic pop
   return __Y;
 }
 
@@ -358,7 +367,8 @@ extern __inline __m128h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm_set_sh (_Float16 __F)
 {
-  return _mm_set_ph (0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, __F);
+  return _mm_set_ph (0.0f16, 0.0f16, 0.0f16, 0.0f16, 0.0f16, 0.0f16, 0.0f16,
+		     __F);
 }
 
 /* Create a vector with element 0 as *P and the rest zero.  */
@@ -366,7 +376,7 @@ extern __inline __m128h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm_load_sh (void const *__P)
 {
-  return _mm_set_ph (0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+  return _mm_set_ph (0.0f16, 0.0f16, 0.0f16, 0.0f16, 0.0f16, 0.0f16, 0.0f16,
 		     *(_Float16 const *) __P);
 }
 

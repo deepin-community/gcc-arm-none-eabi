@@ -31,7 +31,6 @@ Build-Depends:
  zlib1g-dev,
  subversion,
  rename,
- xz-utils,
  libisl-dev,
 Standards-Version: 4.2.0
 Rules-Requires-Root: no

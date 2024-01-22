@@ -1,5 +1,5 @@
 /* Intrinsic translation
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Paul Brook <paul@nowt.org>
    and Steven Bosscher <s.bosscher@student.tudelft.nl>
 
@@ -693,9 +693,9 @@ gfc_build_intrinsic_lib_fndecls (void)
   {
     /* If we have soft-float types, we create the decls for their
        C99-like library functions.  For now, we only handle _Float128
-       q-suffixed functions.  */
+       q-suffixed or IEC 60559 f128-suffixed functions.  */
 
-    tree type, complex_type, func_1, func_2, func_cabs, func_frexp;
+    tree type, complex_type, func_1, func_2, func_3, func_cabs, func_frexp;
     tree func_iround, func_lround, func_llround, func_scalbn, func_cpow;
 
     memset (quad_decls, 0, sizeof(tree) * (END_BUILTINS + 1));
@@ -715,6 +715,8 @@ gfc_build_intrinsic_lib_fndecls (void)
 					     type, NULL_TREE);
     /* type (*) (type, type) */
     func_2 = build_function_type_list (type, type, type, NULL_TREE);
+    /* type (*) (type, type, type) */
+    func_3 = build_function_type_list (type, type, type, type, NULL_TREE);
     /* type (*) (type, &int) */
     func_frexp
       = build_function_type_list (type,
@@ -740,7 +742,10 @@ gfc_build_intrinsic_lib_fndecls (void)
        builtin_decl_for_float_type(). The others are all constructed by
        gfc_get_intrinsic_lib_fndecl().  */
 #define OTHER_BUILTIN(ID, NAME, TYPE, CONST) \
-  quad_decls[BUILT_IN_ ## ID] = define_quad_builtin (NAME "q", func_ ## TYPE, CONST);
+    quad_decls[BUILT_IN_ ## ID]						\
+      = define_quad_builtin (gfc_real16_use_iec_60559			\
+			     ? NAME "f128" : NAME "q", func_ ## TYPE,	\
+			     CONST);
 
 #include "mathbuiltins.def"
 
@@ -752,8 +757,9 @@ gfc_build_intrinsic_lib_fndecls (void)
     /* There is one built-in we defined manually, because it gets called
        with builtin_decl_for_precision() or builtin_decl_for_float_type()
        even though it is not an OTHER_BUILTIN: it is SQRT.  */
-    quad_decls[BUILT_IN_SQRT] = define_quad_builtin ("sqrtq", func_1, true);
-
+    quad_decls[BUILT_IN_SQRT]
+      = define_quad_builtin (gfc_real16_use_iec_60559
+			     ? "sqrtf128" : "sqrtq", func_1, true);
   }
 
   /* Add GCC builtin functions.  */
@@ -876,7 +882,8 @@ gfc_get_intrinsic_lib_fndecl (gfc_intrinsic_map_t * m, gfc_expr * expr)
 		  ts->type == BT_COMPLEX ? "c" : "", m->name, "l");
       else if (gfc_real_kinds[n].c_float128)
 	snprintf (name, sizeof (name), "%s%s%s",
-		  ts->type == BT_COMPLEX ? "c" : "", m->name, "q");
+		  ts->type == BT_COMPLEX ? "c" : "", m->name,
+		  gfc_real_kinds[n].use_iec_60559 ? "f128" : "q");
       else
 	gcc_unreachable ();
     }
@@ -6631,6 +6638,7 @@ gfc_conv_intrinsic_ibits (gfc_se * se, gfc_expr * expr)
   tree type;
   tree tmp;
   tree mask;
+  tree num_bits, cond;
 
   gfc_conv_intrinsic_function_args (se, expr, args, 3);
   type = TREE_TYPE (args[0]);
@@ -6671,8 +6679,17 @@ gfc_conv_intrinsic_ibits (gfc_se * se, gfc_expr * expr)
 			       "in intrinsic IBITS", tmp1, tmp2, nbits);
     }
 
+  /* The Fortran standard allows (shift width) LEN <= BIT_SIZE(I), whereas
+     gcc requires a shift width < BIT_SIZE(I), so we have to catch this
+     special case.  See also gfc_conv_intrinsic_ishft ().  */
+  num_bits = build_int_cst (TREE_TYPE (args[2]), TYPE_PRECISION (type));
+
   mask = build_int_cst (type, -1);
   mask = fold_build2_loc (input_location, LSHIFT_EXPR, type, mask, args[2]);
+  cond = fold_build2_loc (input_location, GE_EXPR, logical_type_node, args[2],
+			  num_bits);
+  mask = fold_build3_loc (input_location, COND_EXPR, type, cond,
+			  build_int_cst (type, 0), mask);
   mask = fold_build1_loc (input_location, BIT_NOT_EXPR, type, mask);
 
   tmp = fold_build2_loc (input_location, RSHIFT_EXPR, type, args[0], args[1]);
@@ -7550,6 +7567,9 @@ gfc_conv_intrinsic_merge (gfc_se * se, gfc_expr * expr)
 				   &se->pre);
       se->string_length = len;
     }
+  tsource = gfc_evaluate_now (tsource, &se->pre);
+  fsource = gfc_evaluate_now (fsource, &se->pre);
+  mask = gfc_evaluate_now (mask, &se->pre);
   type = TREE_TYPE (tsource);
   se->expr = fold_build3_loc (input_location, COND_EXPR, type, mask, tsource,
 			      fold_convert (type, fsource));
@@ -9776,7 +9796,7 @@ conv_ieee_function_args (gfc_se *se, gfc_expr *expr, tree *argarray,
 }
 
 
-/* Generate code for intrinsics IEEE_IS_NAN, IEEE_IS_FINITE,
+/* Generate code for intrinsics IEEE_IS_NAN, IEEE_IS_FINITE
    and IEEE_UNORDERED, which translate directly to GCC type-generic
    built-ins.  */
 
@@ -9785,7 +9805,7 @@ conv_intrinsic_ieee_builtin (gfc_se * se, gfc_expr * expr,
 			     enum built_in_function code, int nargs)
 {
   tree args[2];
-  gcc_assert ((unsigned) nargs <= sizeof(args)/sizeof(args[0]));
+  gcc_assert ((unsigned) nargs <= ARRAY_SIZE (args));
 
   conv_ieee_function_args (se, expr, args, nargs);
   se->expr = build_call_expr_loc_array (input_location,
@@ -9793,6 +9813,23 @@ conv_intrinsic_ieee_builtin (gfc_se * se, gfc_expr * expr,
 					nargs, args);
   STRIP_TYPE_NOPS (se->expr);
   se->expr = fold_convert (gfc_typenode_for_spec (&expr->ts), se->expr);
+}
+
+
+/* Generate code for intrinsics IEEE_SIGNBIT.  */
+
+static void
+conv_intrinsic_ieee_signbit (gfc_se * se, gfc_expr * expr)
+{
+  tree arg, signbit;
+
+  conv_ieee_function_args (se, expr, &arg, 1);
+  signbit = build_call_expr_loc (input_location,
+				 builtin_decl_explicit (BUILT_IN_SIGNBIT),
+				 1, arg);
+  signbit = fold_build2_loc (input_location, NE_EXPR, logical_type_node,
+			     signbit, integer_zero_node);
+  se->expr = fold_convert (gfc_typenode_for_spec (&expr->ts), signbit);
 }
 
 
@@ -10011,15 +10048,10 @@ conv_intrinsic_ieee_copy_sign (gfc_se * se, gfc_expr * expr)
 
 /* Generate code for IEEE_CLASS.  */
 
-static bool
+static void
 conv_intrinsic_ieee_class (gfc_se *se, gfc_expr *expr)
 {
   tree arg, c, t1, t2, t3, t4;
-
-  /* In GCC 12, handle inline only the powerpc64le-linux IEEE quad
-     real(kind=16) and nothing else.  */
-  if (gfc_type_abi_kind (&expr->value.function.actual->expr->ts) != 17)
-    return false;
 
   /* Convert arg, evaluate it only once.  */
   conv_ieee_function_args (se, expr, &arg, 1);
@@ -10041,19 +10073,10 @@ conv_intrinsic_ieee_class (gfc_se *se, gfc_expr *expr)
   t1 = fold_build2_loc (input_location, EQ_EXPR, logical_type_node,
 			c, build_int_cst (integer_type_node,
 					  IEEE_QUIET_NAN));
-  /* In GCC 12, we don't have __builtin_issignaling but above we made
-     sure arg is powerpc64le-linux IEEE quad real(kind=16).
-     When we check it is some kind of NaN by fpclassify, all we need
-     is check the ((__int128) 1) << 111 bit, if it is zero, it is a sNaN,
-     if it is set, it is a qNaN.  */
-  t2 = fold_build1_loc (input_location, VIEW_CONVERT_EXPR,
-			build_nonstandard_integer_type (128, 1), arg);
-  t2 = fold_build2_loc (input_location, RSHIFT_EXPR, TREE_TYPE (t2), t2,
-			build_int_cst (integer_type_node, 111));
-  t2 = fold_convert (integer_type_node, t2);
-  t2 = fold_build2_loc (input_location, BIT_AND_EXPR, integer_type_node,
-			t2, integer_one_node);
-  t2 = fold_build2_loc (input_location, EQ_EXPR, logical_type_node,
+  t2 = build_call_expr_loc (input_location,
+			    builtin_decl_explicit (BUILT_IN_ISSIGNALING), 1,
+			    arg);
+  t2 = fold_build2_loc (input_location, NE_EXPR, logical_type_node,
 			t2, build_zero_cst (TREE_TYPE (t2)));
   t1 = fold_build2_loc (input_location, TRUTH_AND_EXPR,
 			logical_type_node, t1, t2);
@@ -10097,22 +10120,16 @@ conv_intrinsic_ieee_class (gfc_se *se, gfc_expr *expr)
   gcc_assert (field);
   t1 = fold_convert (TREE_TYPE (field), t1);
   se->expr = build_constructor_single (type, field, t1);
-  return true;
 }
 
 
 /* Generate code for IEEE_VALUE.  */
 
-static bool
+static void
 conv_intrinsic_ieee_value (gfc_se *se, gfc_expr *expr)
 {
   tree args[2], arg, ret, tmp;
   stmtblock_t body;
-
-  /* In GCC 12, handle inline only the powerpc64le-linux IEEE quad
-     real(kind=16) and nothing else.  */
-  if (gfc_type_abi_kind (&expr->ts) != 17)
-    return false;
 
   /* Convert args, evaluate the second one only once.  */
   conv_ieee_function_args (se, expr, args, 2);
@@ -10219,7 +10236,30 @@ conv_intrinsic_ieee_value (gfc_se *se, gfc_expr *expr)
   gfc_add_expr_to_block (&se->pre, tmp);
 
   se->expr = ret;
-  return true;
+}
+
+
+/* Generate code for IEEE_FMA.  */
+
+static void
+conv_intrinsic_ieee_fma (gfc_se * se, gfc_expr * expr)
+{
+  tree args[3], decl, call;
+  int argprec;
+
+  conv_ieee_function_args (se, expr, args, 3);
+
+  /* All three arguments should have the same type.  */
+  gcc_assert (TYPE_PRECISION (TREE_TYPE (args[0])) == TYPE_PRECISION (TREE_TYPE (args[1])));
+  gcc_assert (TYPE_PRECISION (TREE_TYPE (args[0])) == TYPE_PRECISION (TREE_TYPE (args[2])));
+
+  /* Call the type-generic FMA built-in.  */
+  argprec = TYPE_PRECISION (TREE_TYPE (args[0]));
+  decl = builtin_decl_for_precision (BUILT_IN_FMA, argprec);
+  call = build_call_expr_loc_array (input_location, decl, 3, args);
+
+  /* Convert to the final type.  */
+  se->expr = fold_convert (TREE_TYPE (args[0]), call);
 }
 
 
@@ -10237,6 +10277,8 @@ gfc_conv_ieee_arithmetic_function (gfc_se * se, gfc_expr * expr)
     conv_intrinsic_ieee_builtin (se, expr, BUILT_IN_ISFINITE, 1);
   else if (startswith (name, "_gfortran_ieee_unordered"))
     conv_intrinsic_ieee_builtin (se, expr, BUILT_IN_ISUNORDERED, 2);
+  else if (startswith (name, "_gfortran_ieee_signbit"))
+    conv_intrinsic_ieee_signbit (se, expr);
   else if (startswith (name, "_gfortran_ieee_is_normal"))
     conv_intrinsic_ieee_is_normal (se, expr);
   else if (startswith (name, "_gfortran_ieee_is_negative"))
@@ -10254,9 +10296,11 @@ gfc_conv_ieee_arithmetic_function (gfc_se * se, gfc_expr * expr)
   else if (startswith (name, "_gfortran_ieee_rint"))
     conv_intrinsic_ieee_logb_rint (se, expr, BUILT_IN_RINT);
   else if (startswith (name, "ieee_class_") && ISDIGIT (name[11]))
-    return conv_intrinsic_ieee_class (se, expr);
+    conv_intrinsic_ieee_class (se, expr);
   else if (startswith (name, "ieee_value_") && ISDIGIT (name[11]))
-    return conv_intrinsic_ieee_value (se, expr);
+    conv_intrinsic_ieee_value (se, expr);
+  else if (startswith (name, "_gfortran_ieee_fma"))
+    conv_intrinsic_ieee_fma (se, expr);
   else
     /* It is not among the functions we translate directly.  We return
        false, so a library function call is emitted.  */

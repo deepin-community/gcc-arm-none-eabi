@@ -1,5 +1,5 @@
 /* IRA allocation based on graph coloring.
-   Copyright (C) 2006-2022 Free Software Foundation, Inc.
+   Copyright (C) 2006-2023 Free Software Foundation, Inc.
    Contributed by Vladimir Makarov <vmakarov@redhat.com>.
 
 This file is part of GCC.
@@ -510,6 +510,13 @@ print_hard_reg_set (FILE *f, HARD_REG_SET set, bool new_line_p)
     }
   if (new_line_p)
     fprintf (f, "\n");
+}
+
+/* Dump a hard reg set SET to stderr.  */
+DEBUG_FUNCTION void
+debug_hard_reg_set (HARD_REG_SET set)
+{
+  print_hard_reg_set (stderr, set, true);
 }
 
 /* Print allocno hard register subforest given by ROOTS and its LEVEL
@@ -1961,7 +1968,6 @@ assign_hard_reg (ira_allocno_t a, bool retry_p)
   aclass = ALLOCNO_CLASS (a);
   class_size = ira_class_hard_regs_num[aclass];
   best_hard_regno = -1;
-  memset (full_costs, 0, sizeof (int) * class_size);
   mem_cost = 0;
   memset (costs, 0, sizeof (int) * class_size);
   memset (full_costs, 0, sizeof (int) * class_size);

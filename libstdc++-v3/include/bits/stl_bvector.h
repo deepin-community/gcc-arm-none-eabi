@@ -1,6 +1,6 @@
 // vector<bool> specialization -*- C++ -*-
 
-// Copyright (C) 2001-2022 Free Software Foundation, Inc.
+// Copyright (C) 2001-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -105,6 +105,18 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	*_M_p &= ~_M_mask;
       return *this;
     }
+
+#if __cplusplus > 202002L
+    constexpr const _Bit_reference&
+    operator=(bool __x) const noexcept
+    {
+      if (__x)
+	*_M_p |= _M_mask;
+      else
+	*_M_p &= ~_M_mask;
+      return *this;
+    }
+#endif // C++23
 
     _GLIBCXX20_CONSTEXPR
     _Bit_reference&
@@ -672,6 +684,8 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
    *  access to individual elements in any order.
    *
    *  @ingroup sequences
+   *  @headerfile vector
+   *  @since C++98
    *
    *  @tparam _Alloc  Allocator type.
    *
@@ -759,8 +773,9 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       vector(const vector& __x)
       : _Base(_Bit_alloc_traits::_S_select_on_copy(__x._M_get_Bit_allocator()))
       {
+	const_iterator __xbegin = __x.begin(), __xend = __x.end();
 	_M_initialize(__x.size());
-	_M_copy_aligned(__x.begin(), __x.end(), begin());
+	_M_copy_aligned(__xbegin, __xend, begin());
       }
 
 #if __cplusplus >= 201103L

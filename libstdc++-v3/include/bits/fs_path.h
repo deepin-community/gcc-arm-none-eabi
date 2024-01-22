@@ -1,6 +1,6 @@
 // Class filesystem::path -*- C++ -*-
 
-// Copyright (C) 2014-2022 Free Software Foundation, Inc.
+// Copyright (C) 2014-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -102,19 +102,16 @@ namespace __detail
 #endif
 
   template<typename _Iter_traits, typename = void>
-    struct __is_path_iter_src
-    : false_type
-    { };
+    inline constexpr bool __is_path_iter_src = false;
 
   template<typename _Iter_traits>
-    struct __is_path_iter_src<_Iter_traits,
-			      void_t<typename _Iter_traits::value_type>>
-    : bool_constant<__is_encoded_char<typename _Iter_traits::value_type>>
-    { };
+    inline constexpr bool
+    __is_path_iter_src<_Iter_traits, void_t<typename _Iter_traits::value_type>>
+      = __is_encoded_char<typename _Iter_traits::value_type>;
 
   template<typename _Source>
     inline constexpr bool __is_path_src
-      = __is_path_iter_src<iterator_traits<decay_t<_Source>>>::value;
+      = __is_path_iter_src<iterator_traits<decay_t<_Source>>>;
 
   template<>
     inline constexpr bool __is_path_src<path> = false;
@@ -150,7 +147,7 @@ namespace __detail
 
   // SFINAE constraint for InputIterator parameters as required by [fs.req].
   template<typename _Iter, typename _Tr = __safe_iterator_traits<_Iter>>
-    using _Path2 = enable_if_t<__is_path_iter_src<_Tr>::value, path>;
+    using _Path2 = enable_if_t<__is_path_iter_src<_Tr>, path>;
 
 #if __cpp_lib_concepts
   template<typename _Iter>
@@ -288,7 +285,11 @@ namespace __detail
   /// @{
 
   /// A filesystem path
-  /// @ingroup filesystem
+  /**
+   * @ingroup filesystem
+   * @headerfile filesystem
+   * @since C++17
+   */
   class path
   {
   public:
@@ -599,12 +600,7 @@ namespace __detail
       _Multi = 0, _Root_name, _Root_dir, _Filename
     };
 
-    path(basic_string_view<value_type> __str, _Type __type)
-    : _M_pathname(__str)
-    {
-      __glibcxx_assert(__type != _Type::_Multi);
-      _M_cmpts.type(__type);
-    }
+    path(basic_string_view<value_type> __str, _Type __type);
 
     enum class _Split { _Stem, _Extension };
 
@@ -737,20 +733,17 @@ namespace __detail
   /// @{
   /// @relates std::filesystem::path
 
-#if __cpp_concepts >= 201907L
-  // Workaround for PR libstdc++/106201
-  inline void
-  swap(same_as<path> auto& __lhs, same_as<path> auto& __rhs) noexcept
-  { __lhs.swap(__rhs); }
-#else
   inline void swap(path& __lhs, path& __rhs) noexcept { __lhs.swap(__rhs); }
-#endif
 
   size_t hash_value(const path& __p) noexcept;
 
   /// @}
 
   /// Exception type thrown by the Filesystem library
+  /**
+   * @headerfile filesystem
+   * @since C++17
+   */
   class filesystem_error : public std::system_error
   {
   public:
@@ -813,11 +806,14 @@ namespace __detail
   /** Create a path from a UTF-8-encoded sequence of char
    *
    * @relates std::filesystem::path
+   * @headerfile filesystem
+   * @since C++17
    */
   template<typename _InputIterator,
 	   typename _Require = __detail::_Path2<_InputIterator>,
 	   typename _CharT
 	     = __detail::__value_type_is_char_or_char8_t<_InputIterator>>
+    _GLIBCXX20_DEPRECATED_SUGGEST("path(u8string(first, last))")
     inline path
     u8path(_InputIterator __first, _InputIterator __last)
     {
@@ -836,10 +832,13 @@ namespace __detail
   /** Create a path from a UTF-8-encoded sequence of char
    *
    * @relates std::filesystem::path
+   * @headerfile filesystem
+   * @since C++17
    */
   template<typename _Source,
 	   typename _Require = __detail::_Path<_Source>,
 	   typename _CharT = __detail::__value_type_is_char_or_char8_t<_Source>>
+    _GLIBCXX20_DEPRECATED_SUGGEST("path((const char8_t*)&*source)")
     inline path
     u8path(const _Source& __source)
     {
@@ -859,8 +858,7 @@ namespace __detail
 
   struct path::_Cmpt : path
   {
-    _Cmpt(basic_string_view<value_type> __s, _Type __t, size_t __pos)
-      : path(__s, __t), _M_pos(__pos) { }
+    _Cmpt(basic_string_view<value_type> __s, _Type __t, size_t __pos);
 
     _Cmpt() : _M_pos(-1) { }
 
@@ -937,6 +935,10 @@ namespace __detail
   /// @endcond
 
   /// An iterator for the components of a path
+  /**
+   * @headerfile filesystem
+   * @since C++17
+   */
   class path::iterator
   {
   public:

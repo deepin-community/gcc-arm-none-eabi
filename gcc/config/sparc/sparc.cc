@@ -1,5 +1,5 @@
 /* Subroutines for insn-output.cc for SPARC.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com)
    64-bit SPARC-V9 support by Michael Tiemann, Jim Wilson, and Doug Evans,
    at Cygnus Support.
@@ -712,7 +712,8 @@ static bool sparc_modes_tieable_p (machine_mode, machine_mode);
 static bool sparc_can_change_mode_class (machine_mode, machine_mode,
 					 reg_class_t);
 static HOST_WIDE_INT sparc_constant_alignment (const_tree, HOST_WIDE_INT);
-static bool sparc_vectorize_vec_perm_const (machine_mode, rtx, rtx, rtx,
+static bool sparc_vectorize_vec_perm_const (machine_mode, machine_mode,
+					    rtx, rtx, rtx,
 					    const vec_perm_indices &);
 static bool sparc_can_follow_jump (const rtx_insn *, const rtx_insn *);
 static HARD_REG_SET sparc_zero_call_used_regs (HARD_REG_SET);
@@ -13035,9 +13036,13 @@ sparc_expand_vec_perm_bmask (machine_mode vmode, rtx sel)
 /* Implement TARGET_VEC_PERM_CONST.  */
 
 static bool
-sparc_vectorize_vec_perm_const (machine_mode vmode, rtx target, rtx op0,
-				rtx op1, const vec_perm_indices &sel)
+sparc_vectorize_vec_perm_const (machine_mode vmode, machine_mode op_mode,
+				rtx target, rtx op0, rtx op1,
+				const vec_perm_indices &sel)
 {
+  if (vmode != op_mode)
+    return false;
+
   if (!TARGET_VIS2)
     return false;
 
@@ -13657,18 +13662,16 @@ sparc_expand_conditional_move (machine_mode mode, rtx *operands)
 void
 sparc_expand_vcond (machine_mode mode, rtx *operands, int ccode, int fcode)
 {
+  enum rtx_code code = signed_condition (GET_CODE (operands[3]));
   rtx mask, cop0, cop1, fcmp, cmask, bshuf, gsr;
-  enum rtx_code code = GET_CODE (operands[3]);
 
   mask = gen_reg_rtx (Pmode);
   cop0 = operands[4];
   cop1 = operands[5];
   if (code == LT || code == GE)
     {
-      rtx t;
-
       code = swap_condition (code);
-      t = cop0; cop0 = cop1; cop1 = t;
+      std::swap (cop0, cop1);
     }
 
   gsr = gen_rtx_REG (DImode, SPARC_GSR_REG);

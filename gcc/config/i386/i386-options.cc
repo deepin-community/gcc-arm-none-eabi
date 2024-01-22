@@ -1,4 +1,4 @@
-/* Copyright (C) 1988-2022 Free Software Foundation, Inc.
+/* Copyright (C) 1988-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -127,16 +127,28 @@ along with GCC; see the file COPYING3.  If not see
 #define m_SAPPHIRERAPIDS (HOST_WIDE_INT_1U<<PROCESSOR_SAPPHIRERAPIDS)
 #define m_ALDERLAKE (HOST_WIDE_INT_1U<<PROCESSOR_ALDERLAKE)
 #define m_ROCKETLAKE (HOST_WIDE_INT_1U<<PROCESSOR_ROCKETLAKE)
+#define m_GRANITERAPIDS (HOST_WIDE_INT_1U<<PROCESSOR_GRANITERAPIDS)
+#define m_GRANITERAPIDS_D (HOST_WIDE_INT_1U<<PROCESSOR_GRANITERAPIDS_D)
 #define m_CORE_AVX512 (m_SKYLAKE_AVX512 | m_CANNONLAKE \
 		       | m_ICELAKE_CLIENT | m_ICELAKE_SERVER | m_CASCADELAKE \
 		       | m_TIGERLAKE | m_COOPERLAKE | m_SAPPHIRERAPIDS \
-		       | m_ROCKETLAKE)
+		       | m_ROCKETLAKE | m_GRANITERAPIDS | m_GRANITERAPIDS_D)
 #define m_CORE_AVX2 (m_HASWELL | m_SKYLAKE | m_CORE_AVX512)
 #define m_CORE_ALL (m_CORE2 | m_NEHALEM  | m_SANDYBRIDGE | m_CORE_AVX2)
 #define m_GOLDMONT (HOST_WIDE_INT_1U<<PROCESSOR_GOLDMONT)
 #define m_GOLDMONT_PLUS (HOST_WIDE_INT_1U<<PROCESSOR_GOLDMONT_PLUS)
 #define m_TREMONT (HOST_WIDE_INT_1U<<PROCESSOR_TREMONT)
+#define m_SIERRAFOREST (HOST_WIDE_INT_1U<<PROCESSOR_SIERRAFOREST)
+#define m_GRANDRIDGE (HOST_WIDE_INT_1U<<PROCESSOR_GRANDRIDGE)
+#define m_CORE_ATOM (m_SIERRAFOREST | m_GRANDRIDGE)
 #define m_INTEL (HOST_WIDE_INT_1U<<PROCESSOR_INTEL)
+/* Gather Data Sampling / CVE-2022-40982 / INTEL-SA-00828.
+   Software mitigation.  */
+#define m_GDS (m_SKYLAKE | m_SKYLAKE_AVX512 | m_CANNONLAKE \
+	       | m_ICELAKE_CLIENT | m_ICELAKE_SERVER | m_CASCADELAKE \
+	       | m_TIGERLAKE | m_COOPERLAKE | m_ROCKETLAKE)
+
+#define m_LUJIAZUI (HOST_WIDE_INT_1U<<PROCESSOR_LUJIAZUI)
 
 #define m_GEODE (HOST_WIDE_INT_1U<<PROCESSOR_GEODE)
 #define m_K6 (HOST_WIDE_INT_1U<<PROCESSOR_K6)
@@ -152,11 +164,12 @@ along with GCC; see the file COPYING3.  If not see
 #define m_ZNVER1 (HOST_WIDE_INT_1U<<PROCESSOR_ZNVER1)
 #define m_ZNVER2 (HOST_WIDE_INT_1U<<PROCESSOR_ZNVER2)
 #define m_ZNVER3 (HOST_WIDE_INT_1U<<PROCESSOR_ZNVER3)
+#define m_ZNVER4 (HOST_WIDE_INT_1U<<PROCESSOR_ZNVER4)
 #define m_BTVER1 (HOST_WIDE_INT_1U<<PROCESSOR_BTVER1)
 #define m_BTVER2 (HOST_WIDE_INT_1U<<PROCESSOR_BTVER2)
 #define m_BDVER	(m_BDVER1 | m_BDVER2 | m_BDVER3 | m_BDVER4)
 #define m_BTVER (m_BTVER1 | m_BTVER2)
-#define m_ZNVER	(m_ZNVER1 | m_ZNVER2 | m_ZNVER3)
+#define m_ZNVER	(m_ZNVER1 | m_ZNVER2 | m_ZNVER3 | m_ZNVER4)
 #define m_AMD_MULTIPLE (m_ATHLON_K8 | m_AMDFAM10 | m_BDVER | m_BTVER \
 			| m_ZNVER)
 
@@ -224,7 +237,15 @@ static struct ix86_target_opts isa2_opts[] =
   { "-mkl",		OPTION_MASK_ISA2_KL },
   { "-mwidekl", 	OPTION_MASK_ISA2_WIDEKL },
   { "-mavxvnni",	OPTION_MASK_ISA2_AVXVNNI },
-  { "-mavx512fp16",	OPTION_MASK_ISA2_AVX512FP16 }
+  { "-mavx512fp16",	OPTION_MASK_ISA2_AVX512FP16 },
+  { "-mavxifma",	OPTION_MASK_ISA2_AVXIFMA },
+  { "-mavxvnniint8",	OPTION_MASK_ISA2_AVXVNNIINT8 },
+  { "-mavxneconvert",   OPTION_MASK_ISA2_AVXNECONVERT },
+  { "-mcmpccxadd",      OPTION_MASK_ISA2_CMPCCXADD },
+  { "-mamx-fp16",       OPTION_MASK_ISA2_AMX_FP16 },
+  { "-mprefetchi",      OPTION_MASK_ISA2_PREFETCHI },
+  { "-mraoint", 	OPTION_MASK_ISA2_RAOINT },
+  { "-mamx-complex",	OPTION_MASK_ISA2_AMX_COMPLEX }
 };
 static struct ix86_target_opts isa_opts[] =
 {
@@ -305,10 +326,6 @@ ix86_omp_device_kind_arch_isa (enum omp_device_kind_arch_isa trait,
     case omp_device_kind:
       return strcmp (name, "cpu") == 0;
     case omp_device_arch:
-#ifdef ACCEL_COMPILER
-      if (strcmp (name, "intel_mic") == 0)
-	return 1;
-#endif
       if (strcmp (name, "x86") == 0)
 	return 1;
       if (TARGET_64BIT)
@@ -677,7 +694,6 @@ ix86_function_specific_save (struct cl_target_option *ptr,
   ptr->x_recip_mask_explicit = opts->x_recip_mask_explicit;
   ptr->x_ix86_arch_string = opts->x_ix86_arch_string;
   ptr->x_ix86_tune_string = opts->x_ix86_tune_string;
-  ptr->x_ix86_abi = opts->x_ix86_abi;
   ptr->x_ix86_asm_dialect = opts->x_ix86_asm_dialect;
   ptr->x_ix86_branch_cost = opts->x_ix86_branch_cost;
   ptr->x_ix86_dump_tunes = opts->x_ix86_dump_tunes;
@@ -741,6 +757,8 @@ static const struct processor_costs *processor_cost_table[] =
   &slm_cost,
   &slm_cost,
   &tremont_cost,
+  &alderlake_cost,
+  &alderlake_cost,
   &slm_cost,
   &slm_cost,
   &skylake_cost,
@@ -754,7 +772,10 @@ static const struct processor_costs *processor_cost_table[] =
   &icelake_cost,
   &alderlake_cost,
   &icelake_cost,
+  &icelake_cost,
+  &icelake_cost,
   &intel_cost,
+  &lujiazui_cost,
   &geode_cost,
   &k6_cost,
   &athlon_cost,
@@ -768,7 +789,8 @@ static const struct processor_costs *processor_cost_table[] =
   &btver2_cost,
   &znver1_cost,
   &znver2_cost,
-  &znver3_cost
+  &znver3_cost,
+  &znver4_cost
 };
 
 /* Guarantee that the array is aligned with enum processor_type.  */
@@ -808,7 +830,6 @@ ix86_function_specific_restore (struct gcc_options *opts,
   opts->x_recip_mask_explicit = ptr->x_recip_mask_explicit;
   opts->x_ix86_arch_string = ptr->x_ix86_arch_string;
   opts->x_ix86_tune_string = ptr->x_ix86_tune_string;
-  opts->x_ix86_abi = ptr->x_ix86_abi;
   opts->x_ix86_asm_dialect = ptr->x_ix86_asm_dialect;
   opts->x_ix86_branch_cost = ptr->x_ix86_branch_cost;
   opts->x_ix86_dump_tunes = ptr->x_ix86_dump_tunes;
@@ -1069,6 +1090,14 @@ ix86_valid_target_attribute_inner_p (tree fndecl, tree args, char *p_strings[],
     IX86_ATTR_ISA ("hreset", OPT_mhreset),
     IX86_ATTR_ISA ("avxvnni",   OPT_mavxvnni),
     IX86_ATTR_ISA ("avx512fp16", OPT_mavx512fp16),
+    IX86_ATTR_ISA ("avxifma", OPT_mavxifma),
+    IX86_ATTR_ISA ("avxvnniint8", OPT_mavxvnniint8),
+    IX86_ATTR_ISA ("avxneconvert", OPT_mavxneconvert),
+    IX86_ATTR_ISA ("cmpccxadd",   OPT_mcmpccxadd),
+    IX86_ATTR_ISA ("amx-fp16", OPT_mamx_fp16),
+    IX86_ATTR_ISA ("prefetchi",   OPT_mprefetchi),
+    IX86_ATTR_ISA ("raoint", OPT_mraoint),
+    IX86_ATTR_ISA ("amx-complex", OPT_mamx_complex),
 
     /* enum options */
     IX86_ATTR_ENUM ("fpmath=",	OPT_mfpmath_),
@@ -1378,7 +1407,11 @@ ix86_valid_target_attribute_tree (tree fndecl, tree args,
       if (option_strings[IX86_FUNCTION_SPECIFIC_TUNE])
 	opts->x_ix86_tune_string
 	  = ggc_strdup (option_strings[IX86_FUNCTION_SPECIFIC_TUNE]);
-      else if (orig_tune_defaulted)
+      /* If we have explicit arch string and no tune string specified, set
+	 tune_string to NULL and later it will be overriden by arch_string
+	 so target clones can get proper optimization.  */
+      else if (option_strings[IX86_FUNCTION_SPECIFIC_ARCH]
+	       || orig_tune_defaulted)
 	opts->x_ix86_tune_string = NULL;
 
       /* If fpmath= is not set, and we now have sse2 on 32-bit, use it.  */
@@ -1696,20 +1729,46 @@ parse_mtune_ctrl_str (struct gcc_options *opts, bool dump)
           curr_feature_string++;
           clear = true;
         }
-      for (i = 0; i < X86_TUNE_LAST; i++)
-        {
-          if (!strcmp (curr_feature_string, ix86_tune_feature_names[i]))
-            {
-              ix86_tune_features[i] = !clear;
-              if (dump)
-                fprintf (stderr, "Explicitly %s feature %s\n",
-                         clear ? "clear" : "set", ix86_tune_feature_names[i]);
-              break;
-            }
-        }
-      if (i == X86_TUNE_LAST)
-	error ("unknown parameter to option %<-mtune-ctrl%>: %s",
-	       clear ? curr_feature_string - 1 : curr_feature_string);
+
+      if (!strcmp (curr_feature_string, "use_gather"))
+	{
+	  ix86_tune_features[X86_TUNE_USE_GATHER_2PARTS] = !clear;
+	  ix86_tune_features[X86_TUNE_USE_GATHER_4PARTS] = !clear;
+	  ix86_tune_features[X86_TUNE_USE_GATHER_8PARTS] = !clear;
+	  if (dump)
+	    fprintf (stderr, "Explicitly %s features use_gather_2parts,"
+		     " use_gather_4parts, use_gather_8parts\n",
+		     clear ? "clear" : "set");
+
+	}
+      else if (!strcmp (curr_feature_string, "use_scatter"))
+	{
+	  ix86_tune_features[X86_TUNE_USE_SCATTER_2PARTS] = !clear;
+	  ix86_tune_features[X86_TUNE_USE_SCATTER_4PARTS] = !clear;
+	  ix86_tune_features[X86_TUNE_USE_SCATTER_8PARTS] = !clear;
+	  if (dump)
+	    fprintf (stderr, "Explicitly %s features use_scatter_2parts,"
+		     " use_scatter_4parts, use_scatter_8parts\n",
+		     clear ? "clear" : "set");
+	}
+      else
+	{
+	  for (i = 0; i < X86_TUNE_LAST; i++)
+	    {
+	      if (!strcmp (curr_feature_string, ix86_tune_feature_names[i]))
+		{
+		  ix86_tune_features[i] = !clear;
+		  if (dump)
+		    fprintf (stderr, "Explicitly %s feature %s\n",
+			     clear ? "clear" : "set", ix86_tune_feature_names[i]);
+		  break;
+		}
+	    }
+
+	  if (i == X86_TUNE_LAST)
+	    error ("unknown parameter to option %<-mtune-ctrl%>: %s",
+		   clear ? curr_feature_string - 1 : curr_feature_string);
+	}
       curr_feature_string = next_feature_string;
     }
   while (curr_feature_string);
@@ -1816,8 +1875,37 @@ ix86_recompute_optlev_based_flags (struct gcc_options *opts,
 void
 ix86_override_options_after_change (void)
 {
+  /* Default align_* from the processor table.  */
   ix86_default_align (&global_options);
+
   ix86_recompute_optlev_based_flags (&global_options, &global_options_set);
+
+  /* Disable unrolling small loops when there's explicit
+     -f{,no}unroll-loop.  */
+  if ((OPTION_SET_P (flag_unroll_loops))
+     || (OPTION_SET_P (flag_unroll_all_loops)
+	 && flag_unroll_all_loops))
+    {
+      if (!OPTION_SET_P (ix86_unroll_only_small_loops))
+	ix86_unroll_only_small_loops = 0;
+      /* Re-enable -frename-registers and -fweb if funroll-loops
+	 enabled.  */
+      if (!OPTION_SET_P (flag_web))
+	flag_web = flag_unroll_loops;
+      if (!OPTION_SET_P (flag_rename_registers))
+	flag_rename_registers = flag_unroll_loops;
+      /* -fcunroll-grow-size default follws -f[no]-unroll-loops.  */
+      if (!OPTION_SET_P (flag_cunroll_grow_size))
+	flag_cunroll_grow_size = flag_unroll_loops
+				 || flag_peel_loops
+				 || optimize >= 3;
+    }
+  else
+    {
+      if (!OPTION_SET_P (flag_cunroll_grow_size))
+	flag_cunroll_grow_size = flag_peel_loops || optimize >= 3;
+    }
+
 }
 
 /* Clear stack slot assignments remembered from previous functions.
@@ -1983,6 +2071,9 @@ ix86_option_override_internal (bool main_args_p,
 
   if (TARGET_UINTR && !TARGET_64BIT)
     error ("%<-muintr%> not supported for 32-bit code");
+
+  if (ix86_lam_type && !TARGET_LP64)
+    error ("%<-mlam=%> option: [u48|u57] not supported for 32-bit code");
 
   if (!opts->x_ix86_arch_string)
     opts->x_ix86_arch_string
@@ -2329,7 +2420,7 @@ ix86_option_override_internal (bool main_args_p,
 
   set_ix86_tune_features (opts, ix86_tune, opts->x_ix86_dump_tunes);
 
-  ix86_recompute_optlev_based_flags (opts, opts_set);
+  ix86_override_options_after_change ();
 
   ix86_tune_cost = processor_cost_table[ix86_tune];
   /* TODO: ix86_cost should be chosen at instruction or function granuality
@@ -2359,9 +2450,6 @@ ix86_option_override_internal (bool main_args_p,
   if (TARGET_IAMCU_P (opts->x_target_flags)
       || TARGET_64BIT_P (opts->x_ix86_isa_flags))
     opts->x_ix86_regparm = REGPARM_MAX;
-
-  /* Default align_* from the processor table.  */
-  ix86_default_align (opts);
 
   /* Provide default for -mbranch-cost= value.  */
   SET_OPTION_IF_UNSET (opts, opts_set, ix86_branch_cost,
@@ -2676,7 +2764,9 @@ ix86_option_override_internal (bool main_args_p,
     sorry ("%<-mcall-ms2sysv-xlogues%> isn%'t currently supported with SEH");
 
   if (!(opts_set->x_target_flags & MASK_VZEROUPPER)
-      && TARGET_EMIT_VZEROUPPER)
+      && TARGET_EMIT_VZEROUPPER
+      && flag_expensive_optimizations
+      && !optimize_size)
     opts->x_target_flags |= MASK_VZEROUPPER;
   if (!(opts_set->x_target_flags & MASK_STV))
     opts->x_target_flags |= MASK_STV;
@@ -2934,6 +3024,8 @@ ix86_option_override_internal (bool main_args_p,
     }
 
   if (ix86_tune_features [X86_TUNE_AVOID_256FMA_CHAINS])
+    SET_OPTION_IF_UNSET (opts, opts_set, param_avoid_fma_max_bits, 512);
+  else if (ix86_tune_features [X86_TUNE_AVOID_256FMA_CHAINS])
     SET_OPTION_IF_UNSET (opts, opts_set, param_avoid_fma_max_bits, 256);
   else if (ix86_tune_features [X86_TUNE_AVOID_128FMA_CHAINS])
     SET_OPTION_IF_UNSET (opts, opts_set, param_avoid_fma_max_bits, 128);

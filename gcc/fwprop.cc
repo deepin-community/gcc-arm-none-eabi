@@ -1,5 +1,5 @@
 /* RTL-based forward propagation pass for GNU compiler.
-   Copyright (C) 2005-2022 Free Software Foundation, Inc.
+   Copyright (C) 2005-2023 Free Software Foundation, Inc.
    Contributed by Paolo Bonzini and Steven Bosscher.
 
 This file is part of GCC.
@@ -25,6 +25,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "coretypes.h"
 #include "backend.h"
 #include "rtl.h"
+#include "rtlanal.h"
 #include "df.h"
 #include "rtl-ssa.h"
 
@@ -351,21 +352,6 @@ static bool
 reg_single_def_p (rtx x)
 {
   return REG_P (x) && crtl->ssa->single_dominating_def (REGNO (x));
-}
-
-/* Return true if X contains a paradoxical subreg.  */
-
-static bool
-contains_paradoxical_subreg_p (rtx x)
-{
-  subrtx_var_iterator::array_type array;
-  FOR_EACH_SUBRTX_VAR (iter, array, x, NONCONST)
-    {
-      x = *iter;
-      if (SUBREG_P (x) && paradoxical_subreg_p (x))
-	return true;
-    }
-  return false;
 }
 
 /* Try to substitute (set DEST SRC), which defines DEF, into note NOTE of
@@ -1029,8 +1015,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return gate_fwprop (); }
-  virtual unsigned int execute (function *) { return fwprop (false); }
+  bool gate (function *) final override { return gate_fwprop (); }
+  unsigned int execute (function *) final override { return fwprop (false); }
 
 }; // class pass_rtl_fwprop
 
@@ -1065,8 +1051,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return gate_fwprop (); }
-  virtual unsigned int execute (function *) { return fwprop (true); }
+  bool gate (function *) final override { return gate_fwprop (); }
+  unsigned int execute (function *) final override { return fwprop (true); }
 
 }; // class pass_rtl_fwprop_addr
 

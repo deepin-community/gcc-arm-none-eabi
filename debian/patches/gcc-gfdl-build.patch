@@ -7,10 +7,10 @@ Subject: gcc-gfdl-build
  1 file changed, 2 insertions(+), 25 deletions(-)
 
 diff --git a/gcc/Makefile.in b/gcc/Makefile.in
-index 31ff955..d97a5bc 100644
+index 775aaa1..5146cd5 100644
 --- a/gcc/Makefile.in
 +++ b/gcc/Makefile.in
-@@ -2605,31 +2605,8 @@ s-tm-texi: $(srcdir)/doc/../doc/tm.texi
+@@ -2637,31 +2637,8 @@ s-tm-texi: $(srcdir)/doc/../doc/tm.texi
  # \r is not portable to Solaris tr, therefore we have a special
  # case for ASCII.  We use \r for other encodings like EBCDIC.
  s-tm-texi: build/genhooks$(build_exeext) $(srcdir)/doc/tm.texi.in

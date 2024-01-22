@@ -1,5 +1,5 @@
 /* Loop splitting.
-   Copyright (C) 2015-2022 Free Software Foundation, Inc.
+   Copyright (C) 2015-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -491,8 +491,6 @@ static void
 fix_loop_bb_probability (class loop *loop1, class loop *loop2, edge true_edge,
 			 edge false_edge)
 {
-  update_ssa (TODO_update_ssa);
-
   /* Proportion first loop's bb counts except those dominated by true
      branch to avoid drop 1s down.  */
   basic_block *bbs1, *bbs2;
@@ -1672,7 +1670,8 @@ tree_ssa_split_loops (void)
       if (loop->aux)
 	{
 	  /* If any of our inner loops was split, don't split us,
-	     and mark our containing loop as having had splits as well.  */
+	     and mark our containing loop as having had splits as well.
+	     This allows for delaying SSA update.  */
 	  loop_outer (loop)->aux = loop;
 	  continue;
 	}
@@ -1728,8 +1727,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return flag_split_loops != 0; }
-  virtual unsigned int execute (function *);
+  bool gate (function *) final override { return flag_split_loops != 0; }
+  unsigned int execute (function *) final override;
 
 }; // class pass_loop_split
 

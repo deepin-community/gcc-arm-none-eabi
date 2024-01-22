@@ -1,6 +1,6 @@
 // Class filesystem::path -*- C++ -*-
 
-// Copyright (C) 2014-2022 Free Software Foundation, Inc.
+// Copyright (C) 2014-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -537,14 +537,7 @@ namespace __detail
   /// @relates std::experimental::filesystem::path @{
 
   /// Swap overload for paths
-#if __cpp_concepts >= 201907L
-  // Workaround for PR libstdc++/106201
-  inline void
-  swap(same_as<path> auto& __lhs, same_as<path> auto& __rhs) noexcept
-  { __lhs.swap(__rhs); }
-#else
-   inline void swap(path& __lhs, path& __rhs) noexcept { __lhs.swap(__rhs); }
-#endif
+  inline void swap(path& __lhs, path& __rhs) noexcept { __lhs.swap(__rhs); }
 
   /// Compute a hash value for a path
   size_t hash_value(const path& __p) noexcept;
@@ -1049,7 +1042,7 @@ namespace __detail
     inline std::basic_string<_CharT, _Traits, _Allocator>
     path::string(const _Allocator& __a) const
     {
-      if _GLIBCXX_CONSTEXPR (is_same<_CharT, value_type>::value)
+      if _GLIBCXX17_CONSTEXPR (is_same<_CharT, value_type>::value)
 	return { _M_pathname.begin(), _M_pathname.end(), __a };
 
       using _WString = basic_string<_CharT, _Traits, _Allocator>;

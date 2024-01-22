@@ -1,5 +1,5 @@
 /* Perform simple optimizations to clean up the result of reload.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -2328,9 +2328,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return (optimize > 0 && reload_completed); }
+  bool gate (function *) final override
+  {
+    return (optimize > 0 && reload_completed);
+  }
 
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 }; // class pass_postreload_cse
 

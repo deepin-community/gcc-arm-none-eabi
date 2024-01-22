@@ -113,6 +113,12 @@
 #if !__has_builtin (__is_nothrow_constructible)
 # error "__has_builtin (__is_nothrow_constructible) failed"
 #endif
+#if !__has_builtin (__reference_constructs_from_temporary)
+# error "__has_builtin (__reference_constructs_from_temporary) failed"
+#endif
+#if !__has_builtin (__reference_converts_from_temporary)
+# error "__has_builtin (__reference_converts_from_temporary) failed"
+#endif
 #if !__has_builtin (__builtin_is_constant_evaluated)
 # error "__has_builtin (__builtin_is_constant_evaluated) failed"
 #endif
@@ -124,4 +130,19 @@
 #endif
 #if !__has_builtin (__builtin_is_pointer_interconvertible_with_class)
 # error "__has_builtin (__builtin_is_pointer_interconvertible_with_class) failed"
+#endif
+#if !__has_builtin (__is_convertible)
+# error "__has_builtin (__is_convertible) failed"
+#endif
+#if !__has_builtin (__is_nothrow_convertible)
+# error "__has_builtin (__is_nothrow_convertible) failed"
+#endif
+#if !__has_builtin (__remove_cv)
+# error "__has_builtin (__remove_cv) failed"
+#endif
+#if !__has_builtin (__remove_reference)
+# error "__has_builtin (__remove_reference) failed"
+#endif
+#if !__has_builtin (__remove_cvref)
+# error "__has_builtin (__remove_cvref) failed"
 #endif

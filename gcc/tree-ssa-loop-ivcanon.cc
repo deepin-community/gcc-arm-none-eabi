@@ -1,5 +1,5 @@
 /* Induction variable canonicalization and loop peeling.
-   Copyright (C) 2004-2022 Free Software Foundation, Inc.
+   Copyright (C) 2004-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -48,9 +48,9 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimple-pretty-print.h"
 #include "fold-const.h"
 #include "profile.h"
+#include "gimple-iterator.h"
 #include "gimple-fold.h"
 #include "tree-eh.h"
-#include "gimple-iterator.h"
 #include "tree-cfg.h"
 #include "tree-ssa-loop-manip.h"
 #include "tree-ssa-loop-niter.h"
@@ -505,9 +505,8 @@ remove_exits_and_undefined_stmts (class loop *loop, unsigned int npeeled)
 	  && wi::ltu_p (elt->bound, npeeled))
 	{
 	  gimple_stmt_iterator gsi = gsi_for_stmt (elt->stmt);
-	  gcall *stmt = gimple_build_call
-	      (builtin_decl_implicit (BUILT_IN_UNREACHABLE), 0);
-	  gimple_set_location (stmt, gimple_location (elt->stmt));
+	  location_t loc = gimple_location (elt->stmt);
+	  gcall *stmt = gimple_build_builtin_unreachable (loc);
 	  gsi_insert_before (&gsi, stmt, GSI_NEW_STMT);
 	  split_block (gimple_bb (stmt), stmt);
 	  changed = true;
@@ -641,7 +640,7 @@ unloop_loops (bitmap loop_closed_ssa_invalidated,
 
       /* Create new basic block for the latch edge destination and wire
 	 it in.  */
-      stmt = gimple_build_call (builtin_decl_implicit (BUILT_IN_UNREACHABLE), 0);
+      stmt = gimple_build_builtin_unreachable (locus);
       latch_edge = make_edge (latch, create_basic_block (NULL, NULL, latch), flags);
       latch_edge->probability = profile_probability::never ();
       latch_edge->flags |= flags;
@@ -1487,15 +1486,16 @@ tree_unroll_loops_completely (bool may_increase_size, bool unroll_outer)
 	    }
 	  BITMAP_FREE (fathers);
 
+	  /* Clean up the information about numbers of iterations, since
+	     complete unrolling might have invalidated it.  */
+	  scev_reset ();
+
 	  /* This will take care of removing completely unrolled loops
 	     from the loop structures so we can continue unrolling now
 	     innermost loops.  */
 	  if (cleanup_tree_cfg ())
 	    update_ssa (TODO_update_ssa_only_virtuals);
 
-	  /* Clean up the information about numbers of iterations, since
-	     complete unrolling might have invalidated it.  */
-	  scev_reset ();
 	  if (flag_checking && loops_state_satisfies_p (LOOP_CLOSED_SSA))
 	    verify_loop_closed_ssa (true);
 	}
@@ -1539,8 +1539,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return flag_tree_loop_ivcanon != 0; }
-  virtual unsigned int execute (function *fun);
+  bool gate (function *) final override { return flag_tree_loop_ivcanon != 0; }
+  unsigned int execute (function *fun) final override;
 
 }; // class pass_iv_canon
 
@@ -1586,7 +1586,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 }; // class pass_complete_unroll
 
@@ -1644,8 +1644,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return optimize >= 2; }
-  virtual unsigned int execute (function *);
+  bool gate (function *) final override { return optimize >= 2; }
+  unsigned int execute (function *) final override;
 
 }; // class pass_complete_unrolli
 

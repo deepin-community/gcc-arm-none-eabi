@@ -1,5 +1,5 @@
 /* Loop invariant motion.
-   Copyright (C) 2003-2022 Free Software Foundation, Inc.
+   Copyright (C) 2003-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -46,6 +46,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "alias.h"
 #include "builtins.h"
 #include "tree-dfa.h"
+#include "tree-ssa.h"
 #include "dbgcnt.h"
 
 /* TODO:  Support for predicated code motion.  I.e.
@@ -331,8 +332,8 @@ enum move_pos
    because it may trap), return MOVE_PRESERVE_EXECUTION.
    Otherwise return MOVE_IMPOSSIBLE.  */
 
-enum move_pos
-movement_possibility (gimple *stmt)
+static enum move_pos
+movement_possibility_1 (gimple *stmt)
 {
   tree lhs;
   enum move_pos ret = MOVE_POSSIBLE;
@@ -421,6 +422,23 @@ movement_possibility (gimple *stmt)
 
   return ret;
 }
+
+static enum move_pos
+movement_possibility (gimple *stmt)
+{
+  enum move_pos pos = movement_possibility_1 (stmt);
+  if (pos == MOVE_POSSIBLE)
+    {
+      use_operand_p use_p;
+      ssa_op_iter ssa_iter;
+      FOR_EACH_PHI_OR_STMT_USE (use_p, stmt, ssa_iter, SSA_OP_USE)
+	if (TREE_CODE (USE_FROM_PTR (use_p)) == SSA_NAME
+	    && ssa_name_maybe_undef_p (USE_FROM_PTR (use_p)))
+	  return MOVE_PRESERVE_EXECUTION;
+    }
+  return pos;
+}
+
 
 /* Compare the profile count inequality of bb and loop's preheader, it is
    three-state as stated in profile-count.h, FALSE is returned if inequality
@@ -835,10 +853,15 @@ determine_max_movement (gimple *stmt, bool must_preserve_exec)
 
       return true;
     }
-  else
-    FOR_EACH_SSA_TREE_OPERAND (val, stmt, iter, SSA_OP_USE)
-      if (!add_dependency (val, lim_data, loop, true))
-	return false;
+
+  /* A stmt that receives abnormal edges cannot be hoisted.  */
+  if (is_a <gcall *> (stmt)
+      && (gimple_call_flags (stmt) & ECF_RETURNS_TWICE))
+    return false;
+
+  FOR_EACH_SSA_TREE_OPERAND (val, stmt, iter, SSA_OP_USE)
+    if (!add_dependency (val, lim_data, loop, true))
+      return false;
 
   if (gimple_vuse (stmt))
     {
@@ -1241,8 +1264,11 @@ move_computations_worker (basic_block bb)
 	     edges of COND.  */
 	  extract_true_false_args_from_phi (dom, stmt, &arg0, &arg1);
 	  gcc_assert (arg0 && arg1);
-	  t = build2 (gimple_cond_code (cond), boolean_type_node,
-		      gimple_cond_lhs (cond), gimple_cond_rhs (cond));
+	  t = make_ssa_name (boolean_type_node);
+	  new_stmt = gimple_build_assign (t, gimple_cond_code (cond),
+					  gimple_cond_lhs (cond),
+					  gimple_cond_rhs (cond));
+	  gsi_insert_on_edge (loop_preheader_edge (level), new_stmt);
 	  new_stmt = gimple_build_assign (gimple_phi_result (stmt),
 					  COND_EXPR, t, arg0, arg1);
 	  todo |= TODO_cleanup_cfg;
@@ -1630,11 +1656,21 @@ gather_mem_refs_stmt (class loop *loop, gimple *stmt)
 				     unshare_expr (mem_base));
 		  if (TYPE_ALIGN (ref_type) != ref_align)
 		    ref_type = build_aligned_type (ref_type, ref_align);
-		  (*slot)->mem.ref
+		  tree new_ref
 		    = fold_build2 (MEM_REF, ref_type, tmp,
 				   build_int_cst (ref_alias_type, mem_off));
 		  if ((*slot)->mem.volatile_p)
-		    TREE_THIS_VOLATILE ((*slot)->mem.ref) = 1;
+		    TREE_THIS_VOLATILE (new_ref) = 1;
+		  (*slot)->mem.ref = new_ref;
+		  /* Make sure the recorded base and offset are consistent
+		     with the newly built ref.  */
+		  if (TREE_CODE (TREE_OPERAND (new_ref, 0)) == ADDR_EXPR)
+		    ;
+		  else
+		    {
+		      (*slot)->mem.base = new_ref;
+		      (*slot)->mem.offset = 0;
+		    }
 		  gcc_checking_assert (TREE_CODE ((*slot)->mem.ref) == MEM_REF
 				       && is_gimple_mem_ref_addr
 				            (TREE_OPERAND ((*slot)->mem.ref,
@@ -2579,7 +2615,9 @@ sm_seq_valid_bb (class loop *loop, basic_block bb, tree vdef,
       if (data->ref == UNANALYZABLE_MEM_ID)
 	return -1;
       /* Stop at memory references which we can't move.  */
-      else if (memory_accesses.refs_list[data->ref]->mem.ref == error_mark_node)
+      else if (memory_accesses.refs_list[data->ref]->mem.ref == error_mark_node
+	       || TREE_THIS_VOLATILE
+		    (memory_accesses.refs_list[data->ref]->mem.ref))
 	{
 	  /* Mark refs_not_in_seq as unsupported.  */
 	  bitmap_ior_into (refs_not_supported, refs_not_in_seq);
@@ -3524,6 +3562,8 @@ loop_invariant_motion_in_fun (function *fun, bool store_motion)
 
   tree_ssa_lim_initialize (store_motion);
 
+  mark_ssa_maybe_undefs ();
+
   /* Gathers information about memory accesses in the loops.  */
   analyze_memory_references (store_motion);
 
@@ -3597,9 +3637,9 @@ public:
   {}
 
   /* opt_pass methods: */
-  opt_pass * clone () { return new pass_lim (m_ctxt); }
-  virtual bool gate (function *) { return flag_tree_loop_im != 0; }
-  virtual unsigned int execute (function *);
+  opt_pass * clone () final override { return new pass_lim (m_ctxt); }
+  bool gate (function *) final override { return flag_tree_loop_im != 0; }
+  unsigned int execute (function *) final override;
 
 }; // class pass_lim
 

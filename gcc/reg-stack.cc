@@ -1,5 +1,5 @@
 /* Register to Stack convert for GNU compiler.
-   Copyright (C) 1992-2022 Free Software Foundation, Inc.
+   Copyright (C) 1992-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -1080,7 +1080,8 @@ move_for_stack_reg (rtx_insn *insn, stack_ptr regstack, rtx pat)
 	      break;
 
 	  /* The destination must be dead, or life analysis is borked.  */
-	  gcc_assert (get_hard_regnum (regstack, dest) < FIRST_STACK_REG);
+	  gcc_assert (get_hard_regnum (regstack, dest) < FIRST_STACK_REG
+		      || any_malformed_asm);
 
 	  /* If the source is not live, this is yet another case of
 	     uninitialized variables.  Load up a NaN instead.  */
@@ -3457,7 +3458,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
 #ifdef STACK_REGS
       return true;
@@ -3512,7 +3513,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return rest_of_handle_stack_regs ();
     }
