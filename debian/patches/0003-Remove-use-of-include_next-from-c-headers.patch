@@ -276,7 +276,7 @@ index 07c02e5..63b7687 100644
  
  #endif
 diff --git a/libstdc++-v3/include/c_global/cmath b/libstdc++-v3/include/c_global/cmath
-index 4dc029e..883c83f 100644
+index 992713b..165d87f 100644
 --- a/libstdc++-v3/include/c_global/cmath
 +++ b/libstdc++-v3/include/c_global/cmath
 @@ -44,7 +44,7 @@

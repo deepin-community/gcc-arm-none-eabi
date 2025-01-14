@@ -8199,12 +8199,20 @@ make_compound_operation_int (scalar_int_mode mode, rtx *x_ptr,
 	  int sub_width;
 	  if ((REG_P (sub) || MEM_P (sub))
 	      && GET_MODE_PRECISION (sub_mode).is_constant (&sub_width)
-	      && sub_width < mode_width)
+	      && sub_width < mode_width
+	      && (!WORD_REGISTER_OPERATIONS
+		  || sub_width >= BITS_PER_WORD
+		  /* On WORD_REGISTER_OPERATIONS targets the bits
+		     beyond sub_mode aren't considered undefined,
+		     so optimize only if it is a MEM load when MEM loads
+		     zero extend, because then the upper bits are all zero.  */
+		  || (MEM_P (sub)
+		      && load_extend_op (sub_mode) == ZERO_EXTEND)))
 	    {
 	      unsigned HOST_WIDE_INT mode_mask = GET_MODE_MASK (sub_mode);
 	      unsigned HOST_WIDE_INT mask;
 
-	      /* original AND constant with all the known zero bits set */
+	      /* Original AND constant with all the known zero bits set.  */
 	      mask = UINTVAL (XEXP (x, 1)) | (~nonzero_bits (sub, sub_mode));
 	      if ((mask & mode_mask) == mode_mask)
 		{
@@ -11793,8 +11801,10 @@ simplify_compare_const (enum rtx_code code, machine_mode mode,
      `and'ed with that bit), we can replace this with a comparison
      with zero.  */
   if (const_op
-      && (code == EQ || code == NE || code == GE || code == GEU
-	  || code == LT || code == LTU)
+      && (code == EQ || code == NE || code == GEU || code == LTU
+	  /* This optimization is incorrect for signed >= INT_MIN or
+	     < INT_MIN, those are always true or always false.  */
+	  || ((code == GE || code == LT) && const_op > 0))
       && is_a <scalar_int_mode> (mode, &int_mode)
       && GET_MODE_PRECISION (int_mode) - 1 < HOST_BITS_PER_WIDE_INT
       && pow2p_hwi (const_op & GET_MODE_MASK (int_mode))

@@ -19,6 +19,7 @@ along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
 #include "config.h"
+#define INCLUDE_SSTREAM
 #include "system.h"
 #include "coretypes.h"
 #include "tm.h"
@@ -4919,7 +4920,7 @@ recording::global::write_to_dump (dump &d)
   else if (m_rvalue_init)
     {
       d.write (" = ");
-      d.write (m_rvalue_init->get_debug_string ());
+      d.write ("%s", m_rvalue_init->get_debug_string ());
       d.write (";\n");
     }
 

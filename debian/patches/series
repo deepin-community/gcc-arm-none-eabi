@@ -1,3 +1,4 @@
 gcc-gfdl-build.patch
 provide-stdint-for-embedded.patch
 0003-Remove-use-of-include_next-from-c-headers.patch
+0004-Arm-Fix-incorrect-tailcall-generation-for-indirect-c.patch

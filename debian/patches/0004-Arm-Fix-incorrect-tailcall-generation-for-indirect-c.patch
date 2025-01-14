@@ -1,0 +1,77 @@
+From: Tejas Belagod <tejas.belagod@arm.com>
+Date: Mon, 19 Feb 2024 12:01:56 -0800
+Subject: Arm: Fix incorrect tailcall-generation for indirect calls [PR113780]
+
+This patch fixes a bug that causes indirect calls in PAC-enabled functions
+to be tailcalled incorrectly when all argument registers R0-R3 are used.
+
+2024-02-07  Tejas Belagod  <tejas.belagod@arm.com>
+
+    PR target/113780
+    * config/arm/arm.cc (arm_function_ok_for_sibcall): Don't allow tailcalls
+    for indirect calls with 4 or more arguments in pac-enabled functions.
+
+    * lib/target-supports.exp (v8_1m_main_pacbti): Add __ARM_FEATURE_PAUTH.
+    * gcc.target/arm/pac-sibcall.c: New.
+---
+ gcc/config/arm/arm.cc                      | 11 +++++++----
+ gcc/testsuite/gcc.target/arm/pac-sibcall.c | 14 ++++++++++++++
+ gcc/testsuite/lib/target-supports.exp      |  2 ++
+ 3 files changed, 23 insertions(+), 4 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/arm/pac-sibcall.c
+
+diff --git a/gcc/config/arm/arm.cc b/gcc/config/arm/arm.cc
+index c00c6d7..bf1c6e3 100644
+--- a/gcc/config/arm/arm.cc
++++ b/gcc/config/arm/arm.cc
+@@ -7947,10 +7947,13 @@ arm_function_ok_for_sibcall (tree decl, tree exp)
+       && DECL_WEAK (decl))
+     return false;
+ 
+-  /* We cannot do a tailcall for an indirect call by descriptor if all the
+-     argument registers are used because the only register left to load the
+-     address is IP and it will already contain the static chain.  */
+-  if (!decl && CALL_EXPR_BY_DESCRIPTOR (exp) && !flag_trampolines)
++  /* We cannot tailcall an indirect call by descriptor if all the call-clobbered
++     general registers are live (r0-r3 and ip).  This can happen when:
++      - IP contains the static chain, or
++      - IP is needed for validating the PAC signature.  */
++  if (!decl
++      && ((CALL_EXPR_BY_DESCRIPTOR (exp) && !flag_trampolines)
++	  || arm_current_function_pac_enabled_p()))
+     {
+       tree fntype = TREE_TYPE (TREE_TYPE (CALL_EXPR_FN (exp)));
+       CUMULATIVE_ARGS cum;
+diff --git a/gcc/testsuite/gcc.target/arm/pac-sibcall.c b/gcc/testsuite/gcc.target/arm/pac-sibcall.c
+new file mode 100644
+index 0000000..e15bd2f
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/arm/pac-sibcall.c
+@@ -0,0 +1,14 @@
++/* If all call-clobbered general registers are live (r0-r3, ip), disable
++   indirect tail-call for a PAC-enabled function.  */
++
++/* { dg-do compile } */
++/* { dg-require-effective-target arm_arch_v8_1m_main_pacbti_ok } */
++/* { dg-add-options arm_arch_v8_1m_main_pacbti } */
++/* { dg-additional-options "-mbranch-protection=pac-ret+leaf -O2" } */
++
++void fail(void (*f)(int, int, int, int))
++{
++  f(1, 2, 3, 4);
++}
++
++/* { dg-final { scan-assembler-not "bx\tip\t@ indirect register sibling call" } } */
+diff --git a/gcc/testsuite/lib/target-supports.exp b/gcc/testsuite/lib/target-supports.exp
+index be8ddc8..d7892b3 100644
+--- a/gcc/testsuite/lib/target-supports.exp
++++ b/gcc/testsuite/lib/target-supports.exp
+@@ -5057,6 +5057,8 @@ foreach { armfunc armflag armdefs } {
+ 		__ARM_ARCH_8M_BASE__
+ 	v8m_main "-march=armv8-m.main -mthumb" __ARM_ARCH_8M_MAIN__
+ 	v8_1m_main "-march=armv8.1-m.main -mthumb" __ARM_ARCH_8M_MAIN__
++ 	v8_1m_main_pacbti "-march=armv8.1-m.main+pacbti+fp -mthumb"
++		"__ARM_ARCH_8M_MAIN__ && __ARM_FEATURE_BTI && __ARM_FEATURE_PAUTH"
+ 	v9a "-march=armv9-a" __ARM_ARCH_9A__ } {
+     eval [string map [list FUNC $armfunc FLAG $armflag DEFS $armdefs ] {
+ 	proc check_effective_target_arm_arch_FUNC_ok { } {
