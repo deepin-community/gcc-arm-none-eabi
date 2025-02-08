@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2024, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -884,6 +884,7 @@ package body Ch6 is
 
                      if not (Paren_Count (Expr) /= 0
                               or else Nkind (Expr) in N_Aggregate
+                                                    | N_Delta_Aggregate
                                                     | N_Extension_Aggregate
                                                     | N_Quantified_Expression)
                      then
@@ -935,7 +936,6 @@ package body Ch6 is
                   --  the body.
 
                   if Is_Non_Empty_List (Aspects) then
-                     Set_Parent (Aspects, Body_Node);
                      Set_Aspect_Specifications (Body_Node, Aspects);
                   end if;
 
@@ -974,7 +974,6 @@ package body Ch6 is
 
          else
             if Is_Non_Empty_List (Aspects) then
-               Set_Parent (Aspects, Decl_Node);
                Set_Aspect_Specifications (Decl_Node, Aspects);
             end if;
 
@@ -1713,7 +1712,7 @@ package body Ch6 is
 
          if Style.Mode_In_Check and then Token /= Tok_Out then
             Error_Msg_SP -- CODEFIX
-              ("(style) IN should be omitted");
+              ("(style) IN should be omitted?I?");
          end if;
 
          --  Since Ada 2005, formal objects can have an anonymous access type,

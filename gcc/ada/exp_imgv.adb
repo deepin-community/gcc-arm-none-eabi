@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2001-2023, Free Software Foundation, Inc.         --
+--          Copyright (C) 2001-2024, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -61,7 +61,7 @@ package body Exp_Imgv is
 
    procedure Rewrite_Object_Image
      (N         : Node_Id;
-      Pref      : Entity_Id;
+      Pref      : Node_Id;
       Attr_Name : Name_Id;
       Str_Typ   : Entity_Id);
    --  AI12-0124: Rewrite attribute 'Image when it is applied to an object
@@ -762,7 +762,7 @@ package body Exp_Imgv is
    --  Snn (1 .. Pnn) then occurs as in the other cases. A special case is
    --  when pragma Discard_Names applies, in which case we replace expr by:
 
-   --     (rt'Pos (expr))'Img
+   --     (rt'Pos (expr))'Image
 
    --  So that the result is a space followed by the decimal value for the
    --  position of the enumeration value in the enumeration type.
@@ -1211,8 +1211,8 @@ package body Exp_Imgv is
            or else No (Lit_Strings (Rtyp))
          then
             --  When pragma Discard_Names applies to the first subtype, build
-            --  (Long_Long_Integer (Pref'Pos (Expr)))'Img. The conversion is
-            --  there to avoid applying 'Img directly in Universal_Integer,
+            --  (Long_Long_Integer (Pref'Pos (Expr)))'Image. The conversion is
+            --  there to avoid applying 'Image directly in Universal_Integer,
             --  which can be a very large type. See also the handling of 'Val.
 
             Rewrite (N,
@@ -1223,8 +1223,7 @@ package body Exp_Imgv is
                     Prefix         => Pref,
                     Attribute_Name => Name_Pos,
                     Expressions    => New_List (Expr))),
-                Attribute_Name =>
-                  Name_Img));
+                Attribute_Name => Name_Image));
             Analyze_And_Resolve (N, Standard_String);
             return;
 
@@ -1831,7 +1830,7 @@ package body Exp_Imgv is
 
    procedure Expand_Wide_Image_Attribute (N : Node_Id) is
       Loc  : constant Source_Ptr := Sloc (N);
-      Pref : constant Entity_Id  := Prefix (N);
+      Pref : constant Node_Id    := Prefix (N);
       Rnn  : constant Entity_Id  := Make_Temporary (Loc, 'S');
       Lnn  : constant Entity_Id  := Make_Temporary (Loc, 'P');
       Rtyp : Entity_Id;
@@ -1939,7 +1938,7 @@ package body Exp_Imgv is
 
    procedure Expand_Wide_Wide_Image_Attribute (N : Node_Id) is
       Loc  : constant Source_Ptr := Sloc (N);
-      Pref : constant Entity_Id  := Prefix (N);
+      Pref : constant Node_Id    := Prefix (N);
       Rnn  : constant Entity_Id  := Make_Temporary (Loc, 'S');
       Lnn  : constant Entity_Id  := Make_Temporary (Loc, 'P');
       Rtyp : Entity_Id;
@@ -2494,7 +2493,7 @@ package body Exp_Imgv is
 
    procedure Rewrite_Object_Image
      (N         : Node_Id;
-      Pref      : Entity_Id;
+      Pref      : Node_Id;
       Attr_Name : Name_Id;
       Str_Typ   : Entity_Id)
    is

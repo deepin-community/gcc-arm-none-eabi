@@ -1,5 +1,5 @@
 /* Header file for the GIMPLE fold_using_range interface.
-   Copyright (C) 2019-2023 Free Software Foundation, Inc.
+   Copyright (C) 2019-2024 Free Software Foundation, Inc.
    Contributed by Andrew MacLeod <amacleod@redhat.com>
    and Aldy Hernandez <aldyh@redhat.com>.
 
@@ -37,9 +37,14 @@ bool fold_range (vrange &v, gimple *s, edge on_edge, range_query *q = NULL);
 
 // These routines the operands to be specified when manually folding.
 // Any excess queries will be drawn from the current range_query.
-bool fold_range (vrange &r, gimple *s, vrange &r1);
-bool fold_range (vrange &r, gimple *s, vrange &r1, vrange &r2);
-bool fold_range (vrange &r, gimple *s, unsigned num_elements, vrange **vector);
+bool fold_range (vrange &r, gimple *s, vrange &r1, range_query *q = NULL);
+bool fold_range (vrange &r, gimple *s, vrange &r1, vrange &r2,
+		 range_query *q = NULL);
+bool fold_range (vrange &r, gimple *s, unsigned num_elements, vrange **vector,
+		 range_query *q = NULL);
+
+// This routine will return a relation trio for stmt S.
+relation_trio fold_relations (gimple *s, range_query *q = NULL);
 
 // Return the type of range which statement S calculates.  If the type is
 // unsupported or no type can be determined, return NULL_TREE.
@@ -82,18 +87,6 @@ gimple_range_ssa_p (tree exp)
       Value_Range::supports_type_p (TREE_TYPE (exp)))
     return exp;
   return NULL_TREE;
-}
-
-// Return true if TYPE1 and TYPE2 are compatible range types.
-
-inline bool
-range_compatible_p (tree type1, tree type2)
-{
-  // types_compatible_p requires conversion in both directions to be useless.
-  // GIMPLE only requires a cast one way in order to be compatible.
-  // Ranges really only need the sign and precision to be the same.
-  return (TYPE_PRECISION (type1) == TYPE_PRECISION (type2)
-	  && TYPE_SIGN (type1) == TYPE_SIGN (type2));
 }
 
 // Source of all operands for fold_using_range and gori_compute.
@@ -149,6 +142,20 @@ protected:
   relation_oracle *m_oracle;
 };
 
+
+// This version of fur_source will pick a range up off an edge.
+
+class fur_edge : public fur_source
+{
+public:
+  fur_edge (edge e, range_query *q = NULL) : fur_source (q)
+    { m_edge = e; }
+  virtual bool get_operand (vrange &r, tree expr) override;
+  virtual bool get_phi_operand (vrange &r, tree expr, edge e) override;
+private:
+  edge m_edge;
+};
+
 // This class uses ranges to fold a gimple statement producing a range for
 // the LHS.  The source of all operands is supplied via the fur_source class
 // which provides a range_query as well as a source location and any other
@@ -168,6 +175,7 @@ protected:
   bool range_of_phi (vrange &r, gphi *phi, fur_source &src);
   void range_of_ssa_name_with_loop_info (vrange &, tree, class loop *, gphi *,
 					 fur_source &src);
-  void relation_fold_and_or (irange& lhs_range, gimple *s, fur_source &src);
+  void relation_fold_and_or (irange& lhs_range, gimple *s, fur_source &src,
+			     vrange &op1, vrange &op2);
 };
 #endif // GCC_GIMPLE_RANGE_FOLD_H

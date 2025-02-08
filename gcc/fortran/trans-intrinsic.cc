@@ -1,5 +1,5 @@
 /* Intrinsic translation
-   Copyright (C) 2002-2023 Free Software Foundation, Inc.
+   Copyright (C) 2002-2024 Free Software Foundation, Inc.
    Contributed by Paul Brook <paul@nowt.org>
    and Steven Bosscher <s.bosscher@student.tudelft.nl>
 
@@ -2562,7 +2562,7 @@ trans_this_image (gfc_se * se, gfc_expr *expr)
   gfc_add_modify (&loop, loop_var,
                   fold_build2_loc (input_location, PLUS_EXPR, integer_type_node,
 				   loop_var,
-				   build_int_cst (integer_type_node, 1)));
+				   integer_one_node));
 
   /* Making the loop... actually loop!  */
   tmp = gfc_finish_block (&loop);
@@ -3090,7 +3090,9 @@ gfc_conv_intrinsic_bound (gfc_se * se, gfc_expr * expr, enum gfc_isym_id op)
 				      lbound, gfc_index_one_node);
 	}
       else if (op == GFC_ISYM_SHAPE)
-	se->expr = size;
+	se->expr = fold_build2_loc (input_location, MAX_EXPR,
+				    gfc_array_index_type, size,
+				    gfc_index_zero_node);
       else
 	gcc_unreachable ();
 
@@ -4112,7 +4114,7 @@ gfc_conv_intrinsic_minmax (gfc_se * se, gfc_expr * expr, enum tree_code op)
       /* Handle absent optional arguments by ignoring the comparison.  */
       if (argexpr->expr->expr_type == EXPR_VARIABLE
 	  && argexpr->expr->symtree->n.sym->attr.optional
-	  && TREE_CODE (val) == INDIRECT_REF)
+	  && INDIRECT_REF_P (val))
 	{
 	  cond = fold_build2_loc (input_location,
 				NE_EXPR, logical_type_node,
@@ -4126,7 +4128,7 @@ gfc_conv_intrinsic_minmax (gfc_se * se, gfc_expr * expr, enum tree_code op)
       tree calc;
       /* For floating point types, the question is what MAX(a, NaN) or
 	 MIN(a, NaN) should return (where "a" is a normal number).
-	 There are valid usecase for returning either one, but the
+	 There are valid use case for returning either one, but the
 	 Fortran standard doesn't specify which one should be chosen.
 	 Also, there is no consensus among other tested compilers.  In
 	 short, it's a mess.  So lets just do whatever is fastest.  */
@@ -5736,6 +5738,7 @@ gfc_conv_intrinsic_minmaxloc (gfc_se * se, gfc_expr * expr, enum tree_code op)
 
       gfc_init_se (&maskse, NULL);
       gfc_conv_expr_val (&maskse, maskexpr);
+      gfc_add_block_to_block (&se->pre, &maskse.pre);
       gfc_init_block (&block);
       gfc_add_block_to_block (&block, &loop.pre);
       gfc_add_block_to_block (&block, &loop.post);
@@ -6863,8 +6866,22 @@ gfc_conv_intrinsic_ishftc (gfc_se * se, gfc_expr * expr)
 
   if (num_args == 3)
     {
+      gfc_expr *size = expr->value.function.actual->next->next->expr;
+
       /* Use a library function for the 3 parameter version.  */
       tree int4type = gfc_get_int_type (4);
+
+      /* Treat optional SIZE argument when it is passed as an optional
+	 dummy.  If SIZE is absent, the default value is BIT_SIZE(I).  */
+      if (size->expr_type == EXPR_VARIABLE
+	  && size->symtree->n.sym->attr.dummy
+	  && size->symtree->n.sym->attr.optional)
+	{
+	  tree type_of_size = TREE_TYPE (args[2]);
+	  args[2] = build3_loc (input_location, COND_EXPR, type_of_size,
+				gfc_conv_expr_present (size->symtree->n.sym),
+				args[2], fold_convert (type_of_size, nbits));
+	}
 
       /* We convert the first argument to at least 4 bytes, and
 	 convert back afterwards.  This removes the need for library
@@ -8025,9 +8042,6 @@ gfc_conv_intrinsic_size (gfc_se * se, gfc_expr * expr)
 	  argse.data_not_needed = 1;
 	  gfc_conv_expr (&argse, actual->expr);
 	  gfc_add_block_to_block (&se->pre, &argse.pre);
-	  cond = fold_build2_loc (input_location, NE_EXPR, logical_type_node,
-				  argse.expr, null_pointer_node);
-	  cond = gfc_evaluate_now (cond, &se->pre);
 	  /* 'block2' contains the arg2 absent case, 'block' the arg2 present
 	      case; size_var can be used in both blocks. */
 	  tree size_var = gfc_create_var (TREE_TYPE (size), "size");
@@ -8038,6 +8052,7 @@ gfc_conv_intrinsic_size (gfc_se * se, gfc_expr * expr)
 	  tmp = fold_build2_loc (input_location, MODIFY_EXPR,
 				 TREE_TYPE (size_var), size_var, size);
 	  gfc_add_expr_to_block (&block2, tmp);
+	  cond = gfc_conv_expr_present (actual->expr->symtree->n.sym);
 	  tmp = build3_v (COND_EXPR, cond, gfc_finish_block (&block),
 			  gfc_finish_block (&block2));
 	  gfc_add_expr_to_block (&se->pre, tmp);
@@ -8238,7 +8253,9 @@ gfc_conv_intrinsic_storage_size (gfc_se *se, gfc_expr *expr)
 {
   gfc_expr *arg;
   gfc_se argse;
-  tree type, result_type, tmp;
+  tree type, result_type, tmp, class_decl = NULL;
+  gfc_symbol *sym;
+  bool unlimited = false;
 
   arg = expr->value.function.actual->expr;
 
@@ -8249,10 +8266,12 @@ gfc_conv_intrinsic_storage_size (gfc_se *se, gfc_expr *expr)
     {
       if (arg->ts.type == BT_CLASS)
 	{
+	  unlimited = UNLIMITED_POLY (arg);
 	  gfc_add_vptr_component (arg);
 	  gfc_add_size_component (arg);
 	  gfc_conv_expr (&argse, arg);
 	  tmp = fold_convert (result_type, argse.expr);
+	  class_decl = gfc_get_class_from_expr (argse.expr);
 	  goto done;
 	}
 
@@ -8264,14 +8283,20 @@ gfc_conv_intrinsic_storage_size (gfc_se *se, gfc_expr *expr)
     {
       argse.want_pointer = 0;
       gfc_conv_expr_descriptor (&argse, arg);
+      sym = arg->expr_type == EXPR_VARIABLE ? arg->symtree->n.sym : NULL;
       if (arg->ts.type == BT_CLASS)
 	{
-	  if (arg->rank > 0)
-	    tmp = gfc_class_vtab_size_get (
-		 GFC_DECL_SAVED_DESCRIPTOR (arg->symtree->n.sym->backend_decl));
-	  else
+	  unlimited = UNLIMITED_POLY (arg);
+	  if (TREE_CODE (argse.expr) == COMPONENT_REF)
 	    tmp = gfc_class_vtab_size_get (TREE_OPERAND (argse.expr, 0));
+	  else if (arg->rank > 0 && sym
+		   && DECL_LANG_SPECIFIC (sym->backend_decl))
+	    tmp = gfc_class_vtab_size_get (
+		 GFC_DECL_SAVED_DESCRIPTOR (sym->backend_decl));
+	  else
+	    gcc_unreachable ();
 	  tmp = fold_convert (result_type, tmp);
+	  class_decl = gfc_get_class_from_expr (argse.expr);
 	  goto done;
 	}
       type = gfc_get_element_type (TREE_TYPE (argse.expr));
@@ -8285,6 +8310,9 @@ gfc_conv_intrinsic_storage_size (gfc_se *se, gfc_expr *expr)
   tmp = fold_convert (result_type, tmp);
 
 done:
+  if (unlimited && class_decl)
+    tmp = gfc_resize_class_size_with_len (NULL, class_decl, tmp);
+
   se->expr = fold_build2_loc (input_location, MULT_EXPR, result_type, tmp,
 			      build_int_cst (result_type, BITS_PER_UNIT));
   gfc_add_block_to_block (&se->pre, &argse.pre);
@@ -8407,7 +8435,10 @@ gfc_conv_intrinsic_transfer (gfc_se * se, gfc_expr * expr)
 	{
 	  tmp = build_fold_indirect_ref_loc (input_location, argse.expr);
 	  if (GFC_CLASS_TYPE_P (TREE_TYPE (tmp)))
-	    source = gfc_class_data_get (tmp);
+	    {
+	      source = gfc_class_data_get (tmp);
+	      class_ref = tmp;
+	    }
 	  else
 	    {
 	      /* Array elements are evaluated as a reference to the data.
@@ -8434,9 +8465,17 @@ gfc_conv_intrinsic_transfer (gfc_se * se, gfc_expr * expr)
 	  break;
 	case BT_CLASS:
 	  if (class_ref != NULL_TREE)
-	    tmp = gfc_class_vtab_size_get (class_ref);
+	    {
+	      tmp = gfc_class_vtab_size_get (class_ref);
+	      if (UNLIMITED_POLY (source_expr))
+		tmp = gfc_resize_class_size_with_len (NULL, class_ref, tmp);
+	    }
 	  else
-	    tmp = gfc_class_vtab_size_get (argse.expr);
+	    {
+	      tmp = gfc_class_vtab_size_get (argse.expr);
+	      if (UNLIMITED_POLY (source_expr))
+		tmp = gfc_resize_class_size_with_len (NULL, argse.expr, tmp);
+	    }
 	  break;
 	default:
 	  source_type = TREE_TYPE (build_fold_indirect_ref_loc (input_location,
@@ -8489,6 +8528,13 @@ gfc_conv_intrinsic_transfer (gfc_se * se, gfc_expr * expr)
       if (arg->expr->ts.type == BT_CHARACTER)
 	tmp = size_of_string_in_bytes (arg->expr->ts.kind,
 				       argse.string_length);
+      else if (arg->expr->ts.type == BT_CLASS)
+	{
+	  class_ref = TREE_OPERAND (argse.expr, 0);
+	  tmp = gfc_class_vtab_size_get (class_ref);
+	  if (UNLIMITED_POLY (arg->expr))
+	    tmp = gfc_resize_class_size_with_len (&argse.pre, class_ref, tmp);
+	}
       else
 	tmp = fold_convert (gfc_array_index_type,
 			    size_in_bytes (source_type));
@@ -8529,15 +8575,14 @@ gfc_conv_intrinsic_transfer (gfc_se * se, gfc_expr * expr)
 
   if (arg->expr->rank == 0)
     {
-      gfc_conv_expr_reference (&argse, arg->expr);
+      gfc_conv_expr_reference (&argse, mold_expr);
       mold_type = TREE_TYPE (build_fold_indirect_ref_loc (input_location,
 							  argse.expr));
     }
   else
     {
-      gfc_init_se (&argse, NULL);
       argse.want_pointer = 0;
-      gfc_conv_expr_descriptor (&argse, arg->expr);
+      gfc_conv_expr_descriptor (&argse, mold_expr);
       mold_type = gfc_get_element_type (TREE_TYPE (argse.expr));
     }
 
@@ -8548,27 +8593,41 @@ gfc_conv_intrinsic_transfer (gfc_se * se, gfc_expr * expr)
     {
       /* If this TRANSFER is nested in another TRANSFER, use a type
 	 that preserves all bits.  */
-      if (arg->expr->ts.type == BT_LOGICAL)
-	mold_type = gfc_get_int_type (arg->expr->ts.kind);
+      if (mold_expr->ts.type == BT_LOGICAL)
+	mold_type = gfc_get_int_type (mold_expr->ts.kind);
     }
 
   /* Obtain the destination word length.  */
-  switch (arg->expr->ts.type)
+  switch (mold_expr->ts.type)
     {
     case BT_CHARACTER:
-      tmp = size_of_string_in_bytes (arg->expr->ts.kind, argse.string_length);
-      mold_type = gfc_get_character_type_len (arg->expr->ts.kind,
+      tmp = size_of_string_in_bytes (mold_expr->ts.kind, argse.string_length);
+      mold_type = gfc_get_character_type_len (mold_expr->ts.kind,
 					      argse.string_length);
       break;
     case BT_CLASS:
-      tmp = gfc_class_vtab_size_get (argse.expr);
+      if (scalar_mold)
+	class_ref = argse.expr;
+      else
+	class_ref = TREE_OPERAND (argse.expr, 0);
+      tmp = gfc_class_vtab_size_get (class_ref);
+      if (UNLIMITED_POLY (arg->expr))
+	tmp = gfc_resize_class_size_with_len (&argse.pre, class_ref, tmp);
       break;
     default:
       tmp = fold_convert (gfc_array_index_type, size_in_bytes (mold_type));
       break;
     }
-  dest_word_len = gfc_create_var (gfc_array_index_type, NULL);
-  gfc_add_modify (&se->pre, dest_word_len, tmp);
+
+  /* Do not fix dest_word_len if it is a variable, since the temporary can wind
+     up being used before the assignment.  */
+  if (mold_expr->ts.type == BT_CHARACTER && mold_expr->ts.deferred)
+    dest_word_len = tmp;
+  else
+    {
+      dest_word_len = gfc_create_var (gfc_array_index_type, NULL);
+      gfc_add_modify (&se->pre, dest_word_len, tmp);
+    }
 
   /* Finally convert SIZE, if it is present.  */
   arg = arg->next;
@@ -10155,7 +10214,7 @@ conv_intrinsic_ieee_value (gfc_se *se, gfc_expr *expr)
   arg = gfc_evaluate_now (arg, &se->pre);
 
   type = gfc_typenode_for_spec (&expr->ts);
-  gcc_assert (TREE_CODE (type) == REAL_TYPE);
+  gcc_assert (SCALAR_FLOAT_TYPE_P (type));
   ret = gfc_create_var (type, NULL);
 
   gfc_init_block (&body);
@@ -10263,6 +10322,205 @@ conv_intrinsic_ieee_fma (gfc_se * se, gfc_expr * expr)
 }
 
 
+/* Generate code for IEEE_{MIN,MAX}_NUM{,_MAG}.  */
+
+static void
+conv_intrinsic_ieee_minmax (gfc_se * se, gfc_expr * expr, int max,
+			    const char *name)
+{
+  tree args[2], func;
+  built_in_function fn;
+
+  conv_ieee_function_args (se, expr, args, 2);
+  gcc_assert (TYPE_PRECISION (TREE_TYPE (args[0])) == TYPE_PRECISION (TREE_TYPE (args[1])));
+  args[0] = gfc_evaluate_now (args[0], &se->pre);
+  args[1] = gfc_evaluate_now (args[1], &se->pre);
+
+  if (startswith (name, "mag"))
+    {
+      /* IEEE_MIN_NUM_MAG and IEEE_MAX_NUM_MAG translate to C functions
+	 fminmag() and fmaxmag(), which do not exist as built-ins.
+
+	 Following glibc, we emit this:
+
+	   fminmag (x, y) {
+	     ax = ABS (x);
+	     ay = ABS (y);
+	     if (isless (ax, ay))
+	       return x;
+	     else if (isgreater (ax, ay))
+	       return y;
+	     else if (ax == ay)
+	       return x < y ? x : y;
+	     else if (issignaling (x) || issignaling (y))
+	       return x + y;
+	     else
+	       return isnan (y) ? x : y;
+	   }
+
+	   fmaxmag (x, y) {
+	     ax = ABS (x);
+	     ay = ABS (y);
+	     if (isgreater (ax, ay))
+	       return x;
+	     else if (isless (ax, ay))
+	       return y;
+	     else if (ax == ay)
+	       return x > y ? x : y;
+	     else if (issignaling (x) || issignaling (y))
+	       return x + y;
+	     else
+	       return isnan (y) ? x : y;
+	   }
+
+	 */
+
+      tree abs0, abs1, sig0, sig1;
+      tree cond1, cond2, cond3, cond4, cond5;
+      tree res;
+      tree type = TREE_TYPE (args[0]);
+
+      func = gfc_builtin_decl_for_float_kind (BUILT_IN_FABS, expr->ts.kind);
+      abs0 = build_call_expr_loc (input_location, func, 1, args[0]);
+      abs1 = build_call_expr_loc (input_location, func, 1, args[1]);
+      abs0 = gfc_evaluate_now (abs0, &se->pre);
+      abs1 = gfc_evaluate_now (abs1, &se->pre);
+
+      cond5 = build_call_expr_loc (input_location,
+				   builtin_decl_explicit (BUILT_IN_ISNAN),
+				   1, args[1]);
+      res = fold_build3_loc (input_location, COND_EXPR, type, cond5,
+			     args[0], args[1]);
+
+      sig0 = build_call_expr_loc (input_location,
+				  builtin_decl_explicit (BUILT_IN_ISSIGNALING),
+				  1, args[0]);
+      sig1 = build_call_expr_loc (input_location,
+				  builtin_decl_explicit (BUILT_IN_ISSIGNALING),
+				  1, args[1]);
+      cond4 = fold_build2_loc (input_location, TRUTH_ORIF_EXPR,
+			       logical_type_node, sig0, sig1);
+      res = fold_build3_loc (input_location, COND_EXPR, type, cond4,
+			     fold_build2_loc (input_location, PLUS_EXPR,
+					      type, args[0], args[1]),
+			     res);
+
+      cond3 = fold_build2_loc (input_location, EQ_EXPR, logical_type_node,
+			       abs0, abs1);
+      res = fold_build3_loc (input_location, COND_EXPR, type, cond3,
+			     fold_build2_loc (input_location,
+					      max ? MAX_EXPR : MIN_EXPR,
+					      type, args[0], args[1]),
+			     res);
+
+      func = builtin_decl_explicit (max ? BUILT_IN_ISLESS : BUILT_IN_ISGREATER);
+      cond2 = build_call_expr_loc (input_location, func, 2, abs0, abs1);
+      res = fold_build3_loc (input_location, COND_EXPR, type, cond2,
+			     args[1], res);
+
+      func = builtin_decl_explicit (max ? BUILT_IN_ISGREATER : BUILT_IN_ISLESS);
+      cond1 = build_call_expr_loc (input_location, func, 2, abs0, abs1);
+      res = fold_build3_loc (input_location, COND_EXPR, type, cond1,
+			     args[0], res);
+
+      se->expr = res;
+    }
+  else
+    {
+      /* IEEE_MIN_NUM and IEEE_MAX_NUM translate to fmin() and fmax().  */
+      fn = max ? BUILT_IN_FMAX : BUILT_IN_FMIN;
+      func = gfc_builtin_decl_for_float_kind (fn, expr->ts.kind);
+      se->expr = build_call_expr_loc_array (input_location, func, 2, args);
+    }
+}
+
+
+/* Generate code for comparison functions IEEE_QUIET_* and
+   IEEE_SIGNALING_*.  */
+
+static void
+conv_intrinsic_ieee_comparison (gfc_se * se, gfc_expr * expr, int signaling,
+				const char *name)
+{
+  tree args[2];
+  tree arg1, arg2, res;
+
+  /* Evaluate arguments only once.  */
+  conv_ieee_function_args (se, expr, args, 2);
+  arg1 = gfc_evaluate_now (args[0], &se->pre);
+  arg2 = gfc_evaluate_now (args[1], &se->pre);
+
+  if (startswith (name, "eq"))
+    {
+      if (signaling)
+	res = build_call_expr_loc (input_location,
+				   builtin_decl_explicit (BUILT_IN_ISEQSIG),
+				   2, arg1, arg2);
+      else
+	res = fold_build2_loc (input_location, EQ_EXPR, logical_type_node,
+			       arg1, arg2);
+    }
+  else if (startswith (name, "ne"))
+    {
+      if (signaling)
+	{
+	  res = build_call_expr_loc (input_location,
+				     builtin_decl_explicit (BUILT_IN_ISEQSIG),
+				     2, arg1, arg2);
+	  res = fold_build1_loc (input_location, TRUTH_NOT_EXPR,
+				 logical_type_node, res);
+	}
+      else
+	res = fold_build2_loc (input_location, NE_EXPR, logical_type_node,
+			       arg1, arg2);
+    }
+  else if (startswith (name, "ge"))
+    {
+      if (signaling)
+	res = fold_build2_loc (input_location, GE_EXPR, logical_type_node,
+			       arg1, arg2);
+      else
+	res = build_call_expr_loc (input_location,
+				   builtin_decl_explicit (BUILT_IN_ISGREATEREQUAL),
+				   2, arg1, arg2);
+    }
+  else if (startswith (name, "gt"))
+    {
+      if (signaling)
+	res = fold_build2_loc (input_location, GT_EXPR, logical_type_node,
+			       arg1, arg2);
+      else
+	res = build_call_expr_loc (input_location,
+				   builtin_decl_explicit (BUILT_IN_ISGREATER),
+				   2, arg1, arg2);
+    }
+  else if (startswith (name, "le"))
+    {
+      if (signaling)
+	res = fold_build2_loc (input_location, LE_EXPR, logical_type_node,
+			       arg1, arg2);
+      else
+	res = build_call_expr_loc (input_location,
+				   builtin_decl_explicit (BUILT_IN_ISLESSEQUAL),
+				   2, arg1, arg2);
+    }
+  else if (startswith (name, "lt"))
+    {
+      if (signaling)
+	res = fold_build2_loc (input_location, LT_EXPR, logical_type_node,
+			       arg1, arg2);
+      else
+	res = build_call_expr_loc (input_location,
+				   builtin_decl_explicit (BUILT_IN_ISLESS),
+				   2, arg1, arg2);
+    }
+  else
+    gcc_unreachable ();
+
+  se->expr = fold_convert (gfc_typenode_for_spec (&expr->ts), res);
+}
+
+
 /* Generate code for an intrinsic function from the IEEE_ARITHMETIC
    module.  */
 
@@ -10301,6 +10559,14 @@ gfc_conv_ieee_arithmetic_function (gfc_se * se, gfc_expr * expr)
     conv_intrinsic_ieee_value (se, expr);
   else if (startswith (name, "_gfortran_ieee_fma"))
     conv_intrinsic_ieee_fma (se, expr);
+  else if (startswith (name, "_gfortran_ieee_min_num_"))
+    conv_intrinsic_ieee_minmax (se, expr, 0, name + 23);
+  else if (startswith (name, "_gfortran_ieee_max_num_"))
+    conv_intrinsic_ieee_minmax (se, expr, 1, name + 23);
+  else if (startswith (name, "_gfortran_ieee_quiet_"))
+    conv_intrinsic_ieee_comparison (se, expr, 0, name + 21);
+  else if (startswith (name, "_gfortran_ieee_signaling_"))
+    conv_intrinsic_ieee_comparison (se, expr, 1, name + 25);
   else
     /* It is not among the functions we translate directly.  We return
        false, so a library function call is emitted.  */
@@ -12596,7 +12862,7 @@ conv_intrinsic_move_alloc (gfc_code *code)
 					    null_pointer_node));
       tmp = build_call_expr_loc (input_location, gfor_fndecl_caf_sync_all,
 				 3, null_pointer_node, null_pointer_node,
-				 build_int_cst (integer_type_node, 0));
+				 integer_zero_node);
 
       tmp = fold_build3_loc (input_location, COND_EXPR, void_type_node, cond,
 			     tmp, build_empty_stmt (input_location));
@@ -12612,9 +12878,8 @@ conv_intrinsic_move_alloc (gfc_code *code)
 	  gfc_add_expr_to_block (&block, tmp);
 	}
 
-      tmp = gfc_conv_descriptor_data_get (to_se.expr);
-      tmp = gfc_deallocate_with_status (tmp, NULL_TREE, NULL_TREE, NULL_TREE,
-					NULL_TREE, true, to_expr,
+      tmp = gfc_deallocate_with_status (to_se.expr, NULL_TREE, NULL_TREE,
+					NULL_TREE, NULL_TREE, true, to_expr,
 					GFC_CAF_COARRAY_NOCOARRAY);
       gfc_add_expr_to_block (&block, tmp);
     }

@@ -59,7 +59,7 @@ CONFIGURE_GCC_FLAGS = \
 	--bindir=/usr/bin \
 	--libexecdir=/usr/lib \
 	--libdir=/usr/lib \
-	--disable-libstdc++-v3 \
+	--disable-libstdcxx \
 	--host=$(DEB_HOST_GNU_TYPE) \
 	--with-headers=no \
 	--without-newlib \

@@ -1,3 +1,21 @@
+gcc-arm-none-eabi (15:14.2.rel1-1) unstable; urgency=medium
+
+  * New upstream 14.2.rel1
+
+ -- Keith Packard <keithp@keithp.com>  Mon, 13 Jan 2025 22:04:18 -0800
+
+gcc-arm-none-eabi (15:13.3.rel1-1) unstable; urgency=medium
+
+  * New upstream 13.3.rel1
+
+ -- Keith Packard <keithp@keithp.com>  Wed, 11 Sep 2024 16:18:19 -0700
+
+gcc-arm-none-eabi (15:13.2.rel1-2) unstable; urgency=medium
+
+  * Add upstream pacbti fix for v8.1m targets
+
+ -- Keith Packard <keithp@keithp.com>  Mon, 19 Feb 2024 12:04:42 -0800
+
 gcc-arm-none-eabi (15:13.2.rel1-1) unstable; urgency=medium
 
   * New upstream 13.2.rel1

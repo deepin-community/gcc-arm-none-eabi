@@ -1,4 +1,4 @@
-/* Copyright (C) 2011-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2011-2024 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
    This file is part of GCC.
@@ -74,6 +74,7 @@ AARCH64_CORE("thunderxt83",   thunderxt83,   thunderx,  V8A,  (CRC, CRYPTO), thu
 /* Ampere Computing ('\xC0') cores. */
 AARCH64_CORE("ampere1", ampere1, cortexa57, V8_6A, (F16, RNG, AES, SHA3), ampere1, 0xC0, 0xac3, -1)
 AARCH64_CORE("ampere1a", ampere1a, cortexa57, V8_6A, (F16, RNG, AES, SHA3, SM4, MEMTAG), ampere1a, 0xC0, 0xac4, -1)
+AARCH64_CORE("ampere1b", ampere1b, cortexa57, V8_7A, (F16, RNG, AES, SHA3, SM4, MEMTAG, CSSC), ampere1b, 0xC0, 0xac5, -1)
 /* Do not swap around "emag" and "xgene1",
    this order is required to handle variant correctly. */
 AARCH64_CORE("emag",        emag,      xgene1,    V8A,  (CRC, CRYPTO), emag, 0x50, 0x000, 3)
@@ -131,6 +132,7 @@ AARCH64_CORE("octeontx2f95mm", octeontx2f95mm, cortexa57, V8_2A,  (CRYPTO, PROFI
 
 /* Fujitsu ('F') cores. */
 AARCH64_CORE("a64fx", a64fx, a64fx, V8_2A,  (F16, SVE), a64fx, 0x46, 0x001, -1)
+AARCH64_CORE("fujitsu-monaka", fujitsu_monaka, cortexa57, V9_3A, (F16, LS64, RNG, CRYPTO, SVE2_AES, SVE2_BITPERM, SVE2_SHA3, SVE2_SM4), fujitsu_monaka, 0x46, 0x003, -1)
 
 /* HiSilicon ('H') cores. */
 AARCH64_CORE("tsv110",  tsv110, tsv110, V8_2A,  (CRYPTO, F16), tsv110,   0x48, 0xd01, -1)
@@ -168,19 +170,39 @@ AARCH64_CORE("cortex-r82", cortexr82, cortexa53, V8R, (), cortexa53, 0x41, 0xd15
 /* Armv9.0-A Architecture Processors.  */
 
 /* Arm ('A') cores. */
-AARCH64_CORE("cortex-a510",  cortexa510, cortexa55, V9A,  (SVE2_BITPERM, MEMTAG, I8MM, BF16), cortexa53, 0x41, 0xd46, -1)
+AARCH64_CORE("cortex-a510",  cortexa510, cortexa53, V9A,  (SVE2_BITPERM, MEMTAG, I8MM, BF16), cortexa53, 0x41, 0xd46, -1)
+
+AARCH64_CORE("cortex-a520",  cortexa520, cortexa53, V9_2A,  (SVE2_BITPERM, MEMTAG), cortexa53, 0x41, 0xd80, -1)
 
 AARCH64_CORE("cortex-a710",  cortexa710, cortexa57, V9A,  (SVE2_BITPERM, MEMTAG, I8MM, BF16), neoversen2, 0x41, 0xd47, -1)
 
 AARCH64_CORE("cortex-a715",  cortexa715, cortexa57, V9A,  (SVE2_BITPERM, MEMTAG, I8MM, BF16), neoversen2, 0x41, 0xd4d, -1)
 
+AARCH64_CORE("cortex-a720",  cortexa720, cortexa57, V9_2A,  (SVE2_BITPERM, MEMTAG, PROFILE), neoversen2, 0x41, 0xd81, -1)
+AARCH64_CORE("cortex-a725",  cortexa725, cortexa57, V9_2A, (SVE2_BITPERM, MEMTAG, PROFILE), neoversen2, 0x41, 0xd87, -1)
+
 AARCH64_CORE("cortex-x2",  cortexx2, cortexa57, V9A,  (SVE2_BITPERM, MEMTAG, I8MM, BF16), neoversen2, 0x41, 0xd48, -1)
 
 AARCH64_CORE("cortex-x3",  cortexx3, cortexa57, V9A,  (SVE2_BITPERM, MEMTAG, I8MM, BF16), neoversen2, 0x41, 0xd4e, -1)
 
+AARCH64_CORE("cortex-x4",  cortexx4, cortexa57, V9_2A,  (SVE2_BITPERM, MEMTAG, PROFILE), neoversen2, 0x41, 0xd81, -1)
+
+AARCH64_CORE("cortex-x925", cortexx925, cortexa57, V9_2A,  (SVE2_BITPERM, MEMTAG, PROFILE), neoversen2, 0x41, 0xd85, -1)
+
 AARCH64_CORE("neoverse-n2", neoversen2, cortexa57, V9A, (I8MM, BF16, SVE2_BITPERM, RNG, MEMTAG, PROFILE), neoversen2, 0x41, 0xd49, -1)
+AARCH64_CORE("cobalt-100",   cobalt100, cortexa57, V9A, (I8MM, BF16, SVE2_BITPERM, RNG, MEMTAG, PROFILE), neoversen2, 0x6d, 0xd49, -1)
+AARCH64_CORE("neoverse-n3", neoversen3, cortexa57, V9_2A, (SVE2_BITPERM, RNG, MEMTAG, PROFILE), neoversen2, 0x41, 0xd8e, -1)
 
 AARCH64_CORE("neoverse-v2", neoversev2, cortexa57, V9A, (I8MM, BF16, SVE2_BITPERM, RNG, MEMTAG, PROFILE), neoversev2, 0x41, 0xd4f, -1)
+AARCH64_CORE("grace", grace, cortexa57, V9A, (I8MM, BF16, SVE2_BITPERM, SVE2_AES, SVE2_SHA3, SVE2_SM4, PROFILE), neoversev2, 0x41, 0xd4f, -1)
+AARCH64_CORE("neoverse-v3", neoversev3, cortexa57, V9_2A, (SVE2_BITPERM, RNG, LS64, MEMTAG, PROFILE), neoversev2, 0x41, 0xd84, -1)
+AARCH64_CORE("neoverse-v3ae", neoversev3ae, cortexa57, V9_2A, (SVE2_BITPERM, RNG, LS64, MEMTAG, PROFILE), neoversev2, 0x41, 0xd83, -1)
+
 AARCH64_CORE("demeter", demeter, cortexa57, V9A, (I8MM, BF16, SVE2_BITPERM, RNG, MEMTAG, PROFILE), neoversev2, 0x41, 0xd4f, -1)
+
+/* Generic Architecture Processors.  */
+AARCH64_CORE("generic",  generic, cortexa53, V8A,  (), generic, 0x0, 0x0, -1)
+AARCH64_CORE("generic-armv8-a",  generic_armv8_a, cortexa53, V8A, (), generic_armv8_a, 0x0, 0x0, -1)
+AARCH64_CORE("generic-armv9-a",  generic_armv9_a, cortexa53, V9A, (), generic_armv9_a, 0x0, 0x0, -1)
 
 #undef AARCH64_CORE
