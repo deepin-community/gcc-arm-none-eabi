@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2024, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -65,6 +65,7 @@ with Sinfo;          use Sinfo;
 with Sinfo.Nodes;    use Sinfo.Nodes;
 with Sinfo.Utils;    use Sinfo.Utils;
 with Snames;         use Snames;
+with Style;          use Style;
 with Tbuild;         use Tbuild;
 with Uintp;          use Uintp;
 with Warnsw;         use Warnsw;
@@ -2056,8 +2057,9 @@ package body Sem_Ch4 is
       --  For the predefined case, the result is Boolean, regardless of the
       --  type of the operands. The operands may even be limited, if they are
       --  generic actuals. If they are overloaded, label the operands with the
-      --  common type that must be present, or with the type of the formal of
-      --  the user-defined function.
+      --  compare type if it is present, typically because it is a global type
+      --  in a generic instance, or with the common type that must be present,
+      --  or with the type of the formal of the user-defined function.
 
       if Present (Entity (N)) then
          Op_Id := Entity (N);
@@ -2070,7 +2072,10 @@ package body Sem_Ch4 is
 
          if Is_Overloaded (L) then
             if Ekind (Op_Id) = E_Operator then
-               Set_Etype (L, Intersect_Types (L, R));
+               Set_Etype (L,
+                 (if Present (Compare_Type (N))
+                  then Compare_Type (N)
+                  else Intersect_Types (L, R)));
             else
                Set_Etype (L, Etype (First_Formal (Op_Id)));
             end if;
@@ -2078,7 +2083,10 @@ package body Sem_Ch4 is
 
          if Is_Overloaded (R) then
             if Ekind (Op_Id) = E_Operator then
-               Set_Etype (R, Intersect_Types (L, R));
+               Set_Etype (R,
+                 (if Present (Compare_Type (N))
+                  then Compare_Type (N)
+                  else Intersect_Types (L, R)));
             else
                Set_Etype (R, Etype (Next_Formal (First_Formal (Op_Id))));
             end if;
@@ -2098,16 +2106,15 @@ package body Sem_Ch4 is
          end loop;
       end if;
 
-      --  If there was no match, and the operator is inequality, this may be
+      --  If there was no match and the operator is inequality, this may be
       --  a case where inequality has not been made explicit, as for tagged
       --  types. Analyze the node as the negation of an equality operation.
-      --  This cannot be done earlier, because before analysis we cannot rule
+      --  This cannot be done earlier because, before analysis, we cannot rule
       --  out the presence of an explicit inequality.
 
-      if Etype (N) = Any_Type
-        and then Nkind (N) = N_Op_Ne
-      then
+      if Etype (N) = Any_Type and then Nkind (N) = N_Op_Ne then
          Op_Id := Get_Name_Entity_Id (Name_Op_Eq);
+
          while Present (Op_Id) loop
             if Ekind (Op_Id) = E_Operator then
                Find_Comparison_Equality_Types (L, R, Op_Id, N);
@@ -2297,7 +2304,9 @@ package body Sem_Ch4 is
             while Present (It.Nam) loop
                T := It.Typ;
 
-               if No (First_Formal (Base_Type (Designated_Type (T)))) then
+               if Is_Access_Type (T)
+                 and then No (First_Formal (Base_Type (Designated_Type (T))))
+               then
                   Set_Etype (P, T);
                else
                   Remove_Interp (I);
@@ -2374,6 +2383,16 @@ package body Sem_Ch4 is
       procedure Check_Action_OK (A : Node_Id) is
       begin
          if not Comes_From_Source (N) or else not Comes_From_Source (A) then
+
+            --  If, for example, an (illegal) expression function is
+            --  transformed into a "vanilla" function then we don't want to
+            --  allow it just because Comes_From_Source is now False. So look
+            --  at the Original_Node.
+
+            if Is_Rewrite_Substitution (A) then
+               Check_Action_OK (Original_Node (A));
+            end if;
+
             return; -- Allow anything in generated code
          end if;
 
@@ -2406,10 +2425,27 @@ package body Sem_Ch4 is
                   return; -- ???For now; the RM rule is a bit more complicated
                end if;
 
+            when N_Pragma =>
+               declare
+                  --  See AI22-0045 pragma categorization.
+                  subtype Executable_Pragma_Id is Pragma_Id
+                    with Predicate => Executable_Pragma_Id in
+                        --  language-defined executable pragmas
+                      Pragma_Assert | Pragma_Inspection_Point
+
+                        --  GNAT-defined executable pragmas
+                        | Pragma_Assume | Pragma_Debug;
+               begin
+                  if Get_Pragma_Id (A) in Executable_Pragma_Id then
+                     return;
+                  end if;
+               end;
+
             when others =>
-               null; -- Nothing else allowed, not even pragmas
+               null; -- Nothing else allowed
          end case;
 
+         --  We could mention pragmas in the message text; let's not.
          Error_Msg_N ("object renaming or constant declaration expected", A);
       end Check_Action_OK;
 
@@ -3130,6 +3166,20 @@ package body Sem_Ch4 is
 
       Operator_Check (N);
       Check_Function_Writable_Actuals (N);
+
+      if Style_Check then
+         if Nkind (L) not in N_Short_Circuit | N_Op_And | N_Op_Or | N_Op_Xor
+           and then Is_Boolean_Type (Etype (L))
+         then
+            Check_Xtra_Parens_Precedence (L);
+         end if;
+
+         if Nkind (R) not in N_Short_Circuit | N_Op_And | N_Op_Or | N_Op_Xor
+           and then Is_Boolean_Type (Etype (R))
+         then
+            Check_Xtra_Parens_Precedence (R);
+         end if;
+      end if;
    end Analyze_Logical_Op;
 
    ---------------------------
@@ -3391,6 +3441,26 @@ package body Sem_Ch4 is
 
          Analyze_Set_Membership;
 
+         declare
+            Alt : Node_Id;
+         begin
+            Alt := First (Alternatives (N));
+            while Present (Alt) loop
+               if Is_Entity_Name (Alt) and then Is_Type (Entity (Alt)) then
+                  Check_Fully_Declared (Entity (Alt), Alt);
+
+                  if Has_Ghost_Predicate_Aspect (Entity (Alt)) then
+                     Error_Msg_NE
+                       ("subtype& has ghost predicate, "
+                        & "not allowed in membership test",
+                        Alt, Entity (Alt));
+                  end if;
+               end if;
+
+               Next (Alt);
+            end loop;
+         end;
+
       elsif Nkind (R) = N_Range
         or else (Nkind (R) = N_Attribute_Reference
                   and then Attribute_Name (R) = Name_Range)
@@ -3409,6 +3479,13 @@ package body Sem_Ch4 is
          if Is_Entity_Name (R) and then Is_Type (Entity (R)) then
             Find_Type (R);
             Check_Fully_Declared (Entity (R), R);
+
+            if Has_Ghost_Predicate_Aspect (Entity (R)) then
+               Error_Msg_NE
+                 ("subtype& has ghost predicate, "
+                  & "not allowed in membership test",
+                  R, Entity (R));
+            end if;
 
          elsif Ada_Version >= Ada_2012 and then Find_Interp then
             Op := Make_Op_Eq (Loc, Left_Opnd => L, Right_Opnd => R);
@@ -4848,16 +4925,6 @@ package body Sem_Ch4 is
       --  the discriminant values for a discriminant constraint)
       --  are unprefixed discriminant names.
 
-      procedure Find_Component_In_Instance (Rec : Entity_Id);
-      --  In an instance, a component of a private extension may not be visible
-      --  while it was visible in the generic. Search candidate scope for a
-      --  component with the proper identifier. This is only done if all other
-      --  searches have failed. If a match is found, the Etype of both N and
-      --  Sel are set from this component, and the entity of Sel is set to
-      --  reference this component. If no match is found, Entity (Sel) remains
-      --  unset. For a derived type that is an actual of the instance, the
-      --  desired component may be found in any ancestor.
-
       function Has_Mode_Conformant_Spec (Comp : Entity_Id) return Boolean;
       --  It is known that the parent of N denotes a subprogram call. Comp
       --  is an overloadable component of the concurrent type of the prefix.
@@ -4876,6 +4943,14 @@ package body Sem_Ch4 is
       --  _Procedure, and collect all its interpretations (since it may be an
       --  overloaded interface primitive); otherwise return False.
 
+      function Try_Selected_Component_In_Instance
+        (Typ : Entity_Id) return Boolean;
+      --  If Typ is the actual for a formal derived type, or a derived type
+      --  thereof, the component inherited from the generic parent may not
+      --  be visible in the actual, but the selected component is legal. Climb
+      --  up the derivation chain of the generic parent type and return True if
+      --  we find the proper ancestor type; otherwise return False.
+
       ------------------------------------------------------
       -- Constraint_Has_Unprefixed_Discriminant_Reference --
       ------------------------------------------------------
@@ -4883,10 +4958,9 @@ package body Sem_Ch4 is
       function Constraint_Has_Unprefixed_Discriminant_Reference
         (Typ : Entity_Id) return Boolean
       is
-
          function Is_Discriminant_Name (N : Node_Id) return Boolean is
-           ((Nkind (N) = N_Identifier)
-              and then (Ekind (Entity (N)) = E_Discriminant));
+           (Nkind (N) = N_Identifier
+              and then Ekind (Entity (N)) = E_Discriminant);
       begin
          if Is_Array_Type (Typ) then
             declare
@@ -4925,49 +4999,6 @@ package body Sem_Ch4 is
 
          return False;
       end Constraint_Has_Unprefixed_Discriminant_Reference;
-
-      --------------------------------
-      -- Find_Component_In_Instance --
-      --------------------------------
-
-      procedure Find_Component_In_Instance (Rec : Entity_Id) is
-         Comp : Entity_Id;
-         Typ  : Entity_Id;
-
-      begin
-         Typ := Rec;
-         while Present (Typ) loop
-            Comp := First_Component (Typ);
-            while Present (Comp) loop
-               if Chars (Comp) = Chars (Sel) then
-                  Set_Entity_With_Checks (Sel, Comp);
-                  Set_Etype (Sel, Etype (Comp));
-                  Set_Etype (N,   Etype (Comp));
-                  return;
-               end if;
-
-               Next_Component (Comp);
-            end loop;
-
-            --  If not found, the component may be declared in the parent
-            --  type or its full view, if any.
-
-            if Is_Derived_Type (Typ) then
-               Typ := Etype (Typ);
-
-               if Is_Private_Type (Typ) then
-                  Typ := Full_View (Typ);
-               end if;
-
-            else
-               return;
-            end if;
-         end loop;
-
-         --  If we fall through, no match, so no changes made
-
-         return;
-      end Find_Component_In_Instance;
 
       ------------------------------
       -- Has_Mode_Conformant_Spec --
@@ -5105,6 +5136,126 @@ package body Sem_Ch4 is
 
          return Present (Candidate);
       end Try_By_Protected_Procedure_Prefixed_View;
+
+      ----------------------------------------
+      -- Try_Selected_Component_In_Instance --
+      ----------------------------------------
+
+      function Try_Selected_Component_In_Instance
+        (Typ : Entity_Id) return Boolean
+      is
+         procedure Find_Component_In_Instance (Rec : Entity_Id);
+         --  In an instance, a component of a private extension may not be
+         --  visible while it was visible in the generic. Search candidate
+         --  scope for a component with the proper identifier. If a match is
+         --  found, the Etype of both N and Sel are set from this component,
+         --  and the entity of Sel is set to reference this component. If no
+         --  match is found, Entity (Sel) remains unset. For a derived type
+         --  that is an actual of the instance, the desired component may be
+         --  found in any ancestor.
+
+         --------------------------------
+         -- Find_Component_In_Instance --
+         --------------------------------
+
+         procedure Find_Component_In_Instance (Rec : Entity_Id) is
+            Comp : Entity_Id;
+            Typ  : Entity_Id;
+
+         begin
+            Typ := Rec;
+            while Present (Typ) loop
+               Comp := First_Component (Typ);
+               while Present (Comp) loop
+                  if Chars (Comp) = Chars (Sel) then
+                     Set_Entity_With_Checks (Sel, Comp);
+                     Set_Etype (Sel, Etype (Comp));
+                     Set_Etype (N,   Etype (Comp));
+                     return;
+                  end if;
+
+                  Next_Component (Comp);
+               end loop;
+
+               --  If not found, the component may be declared in the parent
+               --  type or its full view, if any.
+
+               if Is_Derived_Type (Typ) then
+                  Typ := Etype (Typ);
+
+                  if Is_Private_Type (Typ) then
+                     Typ := Full_View (Typ);
+                  end if;
+
+               else
+                  return;
+               end if;
+            end loop;
+
+            --  If we fall through, no match, so no changes made
+
+            return;
+         end Find_Component_In_Instance;
+
+         --  Local variables
+
+         Par : Entity_Id;
+
+      --  Start of processing for Try_Selected_Component_In_Instance
+
+      begin
+         pragma Assert (In_Instance and then Is_Tagged_Type (Typ));
+         pragma Assert (Etype (N) = Any_Type);
+
+         --  Climb up derivation chain to generic actual subtype
+
+         Par := Typ;
+         while not Is_Generic_Actual_Type (Par) loop
+            if Ekind (Par) = E_Record_Type then
+               Par := Parent_Subtype (Par);
+               exit when No (Par);
+            else
+               exit when Par = Etype (Par);
+               Par := Etype (Par);
+            end if;
+         end loop;
+
+         --  If Par is a generic actual, look for component in ancestor types.
+         --  Skip this if we have no Declaration_Node, as is the case for
+         --  itypes.
+
+         if Present (Par)
+           and then Is_Generic_Actual_Type (Par)
+           and then Present (Declaration_Node (Par))
+         then
+            Par := Generic_Parent_Type (Declaration_Node (Par));
+            loop
+               Find_Component_In_Instance (Par);
+               exit when Present (Entity (Sel))
+                 or else Par = Etype (Par);
+               Par := Etype (Par);
+            end loop;
+
+         --  Another special case: the type is an extension of a private
+         --  type T, either is an actual in an instance or is immediately
+         --  visible, and we are in the body of the instance, which means
+         --  the generic body had a full view of the type declaration for
+         --  T or some ancestor that defines the component in question.
+         --  This happens because Is_Visible_Component returned False on
+         --  this component, as T or the ancestor is still private since
+         --  the Has_Private_View mechanism is bypassed because T or the
+         --  ancestor is not directly referenced in the generic body.
+
+         elsif Is_Derived_Type (Typ)
+           and then (Used_As_Generic_Actual (Typ)
+                      or else Is_Immediately_Visible (Typ))
+           and then In_Instance_Body
+         then
+            Find_Component_In_Instance (Parent_Subtype (Typ));
+         end if;
+
+         return Etype (N) /= Any_Type;
+      end Try_Selected_Component_In_Instance;
 
    --  Start of processing for Analyze_Selected_Component
 
@@ -5457,6 +5608,22 @@ package body Sem_Ch4 is
                end if;
 
             elsif Try_By_Protected_Procedure_Prefixed_View then
+               return;
+
+            --  If the prefix type is the actual for a formal derived type,
+            --  or a derived type thereof, the component inherited from the
+            --  generic parent may not be visible in the actual, but the
+            --  selected component is legal. This case must be handled before
+            --  trying the object.operation notation to avoid reporting
+            --  spurious errors, but must be skipped when Is_Prefixed_Call has
+            --  been set (because that means that this node was resolved to an
+            --  Object.Operation call when the generic unit was analyzed).
+
+            elsif In_Instance
+              and then not Is_Prefixed_Call (N)
+              and then Is_Tagged_Type (Prefix_Type)
+              and then Try_Selected_Component_In_Instance (Type_To_Use)
+            then
                return;
 
             elsif Try_Object_Operation (N) then
@@ -5819,64 +5986,22 @@ package body Sem_Ch4 is
          --  Similarly, if this is the actual for a formal derived type, or
          --  a derived type thereof, the component inherited from the generic
          --  parent may not be visible in the actual, but the selected
-         --  component is legal. Climb up the derivation chain of the generic
-         --  parent type until we find the proper ancestor type.
+         --  component is legal.
 
          elsif In_Instance and then Is_Tagged_Type (Prefix_Type) then
-            declare
-               Par : Entity_Id := Prefix_Type;
-            begin
-               --  Climb up derivation chain to generic actual subtype
 
-               while not Is_Generic_Actual_Type (Par) loop
-                  if Ekind (Par) = E_Record_Type then
-                     Par := Parent_Subtype (Par);
-                     exit when No (Par);
-                  else
-                     exit when Par = Etype (Par);
-                     Par := Etype (Par);
-                  end if;
-               end loop;
+            --  Climb up the derivation chain of the generic parent type until
+            --  we find the proper ancestor type.
 
-               if Present (Par) and then Is_Generic_Actual_Type (Par) then
-
-                  --  Now look for component in ancestor types
-
-                  Par := Generic_Parent_Type (Declaration_Node (Par));
-                  loop
-                     Find_Component_In_Instance (Par);
-                     exit when Present (Entity (Sel))
-                       or else Par = Etype (Par);
-                     Par := Etype (Par);
-                  end loop;
-
-               --  Another special case: the type is an extension of a private
-               --  type T, either is an actual in an instance or is immediately
-               --  visible, and we are in the body of the instance, which means
-               --  the generic body had a full view of the type declaration for
-               --  T or some ancestor that defines the component in question.
-               --  This happens because Is_Visible_Component returned False on
-               --  this component, as T or the ancestor is still private since
-               --  the Has_Private_View mechanism is bypassed because T or the
-               --  ancestor is not directly referenced in the generic body.
-
-               elsif Is_Derived_Type (Type_To_Use)
-                 and then (Used_As_Generic_Actual (Type_To_Use)
-                            or else Is_Immediately_Visible (Type_To_Use))
-                 and then In_Instance_Body
-               then
-                  Find_Component_In_Instance (Parent_Subtype (Type_To_Use));
-               end if;
-            end;
+            if Try_Selected_Component_In_Instance (Type_To_Use) then
+               return;
 
             --  The search above must have eventually succeeded, since the
             --  selected component was legal in the generic.
 
-            if No (Entity (Sel)) then
+            else
                raise Program_Error;
             end if;
-
-            return;
 
          --  Component not found, specialize error message when appropriate
 
@@ -5902,17 +6027,17 @@ package body Sem_Ch4 is
                      --  Emit appropriate message. The node will be replaced
                      --  by an appropriate raise statement.
 
-                     --  Note that in SPARK mode, as with all calls to apply a
-                     --  compile time constraint error, this will be made into
-                     --  an error to simplify the processing of the formal
-                     --  verification backend.
+                     --  Note that in GNATprove mode, as with all calls to
+                     --  apply a compile time constraint error, this will be
+                     --  made into an error to simplify the processing of the
+                     --  formal verification backend.
 
                      Apply_Compile_Time_Constraint_Error
                        (N, "component not present in }??",
                         CE_Discriminant_Check_Failed,
                         Ent          => Prefix_Type,
                         Emit_Message =>
-                          SPARK_Mode = On or not In_Instance_Not_Visible);
+                          GNATprove_Mode or not In_Instance_Not_Visible);
                      return;
                   end if;
 
@@ -6006,6 +6131,18 @@ package body Sem_Ch4 is
          Resolve (L, Standard_Boolean);
          Resolve (R, Standard_Boolean);
          Set_Etype (N, Standard_Boolean);
+      end if;
+
+      if Style_Check then
+         if Nkind (L) not in N_Short_Circuit | N_Op_And | N_Op_Or | N_Op_Xor
+         then
+            Check_Xtra_Parens_Precedence (L);
+         end if;
+
+         if Nkind (R) not in N_Short_Circuit | N_Op_And | N_Op_Or | N_Op_Xor
+         then
+            Check_Xtra_Parens_Precedence (R);
+         end if;
       end if;
    end Analyze_Short_Circuit;
 
@@ -8338,9 +8475,21 @@ package body Sem_Ch4 is
             --  resolution does not depend on the type of the parameter that
             --  includes the indexing operation.
 
-            elsif Nkind (Parent (Par)) in N_Subprogram_Call
-              and then Is_Entity_Name (Name (Parent (Par)))
-            then
+            elsif Nkind (Parent (Par)) in N_Subprogram_Call then
+
+               if not Is_Entity_Name (Name (Parent (Par))) then
+
+                  --  ??? We don't know what to do with an N_Selected_Component
+                  --  node for a prefixed-notation call to AA.BB where AA's
+                  --  type is known, but BB has not yet been resolved. In that
+                  --  case, the preceding Is_Entity_Name call returns False.
+                  --  Incorrectly returning False here will usually work
+                  --  better than incorrectly returning True, so that's what
+                  --  we do for now.
+
+                  return False;
+               end if;
+
                declare
                   Proc : Entity_Id;
 
@@ -9782,7 +9931,7 @@ package body Sem_Ch4 is
          if (not Is_Tagged_Type (Obj_Type)
               and then
                 (not (Core_Extensions_Allowed or Allow_Extensions)
-                  or else not Present (Primitive_Operations (Obj_Type))))
+                  or else No (Primitive_Operations (Obj_Type))))
            or else Is_Incomplete_Type (Obj_Type)
          then
             Obj_Type := Prev_Obj_Type;
@@ -10094,9 +10243,15 @@ package body Sem_Ch4 is
 
                elsif not Comes_From_Source (Visible_Op)
                  and then Alias (Visible_Op) = Op
-                 and then not Is_Hidden (Visible_Op)
                then
-                  return True;
+                  --  If Visible_Op or what it overrides is not hidden, then we
+                  --  have found what we're looking for.
+
+                  if not Is_Hidden (Visible_Op)
+                    or else not Is_Hidden (Overridden_Operation (Op))
+                  then
+                     return True;
+                  end if;
                end if;
 
                Visible_Op := Homonym (Visible_Op);

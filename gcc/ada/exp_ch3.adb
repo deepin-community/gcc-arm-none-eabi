@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2024, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -139,7 +139,7 @@ package body Exp_Ch3 is
    --  the code expansion for controlled components (when control actions
    --  are active) can lead to very large blocks that GCC handles poorly.
 
-   procedure Build_Untagged_Equality (Typ : Entity_Id);
+   procedure Build_Untagged_Record_Equality (Typ : Entity_Id);
    --  AI05-0123: Equality on untagged records composes. This procedure
    --  builds the equality routine for an untagged record that has components
    --  of a record type that has user-defined primitive equality operations.
@@ -583,10 +583,6 @@ package body Exp_Ch3 is
       Ptr       : Entity_Id;
 
    begin
-      if not Expander_Active then
-         return;
-      end if;
-
       --  Create List of actuals for indirect call. The last parameter of the
       --  subprogram declaration is the access value for the indirect call.
 
@@ -2154,21 +2150,10 @@ package body Exp_Ch3 is
            and then Nkind (Exp_Q) /= N_Raise_Expression
          then
             Append_To (Res,
-              Make_Assignment_Statement (Default_Loc,
-                Name       =>
-                  Make_Selected_Component (Default_Loc,
-                    Prefix        =>
-                      New_Copy_Tree (Lhs, New_Scope => Proc_Id),
-                    Selector_Name =>
-                      New_Occurrence_Of
-                        (First_Tag_Component (Typ), Default_Loc)),
-
-                Expression =>
-                  Unchecked_Convert_To (RTE (RE_Tag),
-                    New_Occurrence_Of
-                      (Node (First_Elmt (Access_Disp_Table (Underlying_Type
-                         (Typ)))),
-                       Default_Loc))));
+              Make_Tag_Assignment_From_Type
+                (Default_Loc,
+                 New_Copy_Tree (Lhs, New_Scope => Proc_Id),
+                 Underlying_Type (Typ)));
          end if;
 
          --  Adjust the component if controlled except if it is an aggregate
@@ -2795,17 +2780,8 @@ package body Exp_Ch3 is
                --  Initialize the primary tag component
 
                Init_Tags_List := New_List (
-                 Make_Assignment_Statement (Loc,
-                   Name =>
-                     Make_Selected_Component (Loc,
-                       Prefix        => Make_Identifier (Loc, Name_uInit),
-                       Selector_Name =>
-                         New_Occurrence_Of
-                           (First_Tag_Component (Rec_Type), Loc)),
-                   Expression =>
-                     New_Occurrence_Of
-                       (Node
-                         (First_Elmt (Access_Disp_Table (Rec_Type))), Loc)));
+                 Make_Tag_Assignment_From_Type
+                   (Loc, Make_Identifier (Loc, Name_uInit), Rec_Type));
 
                --  Ada 2005 (AI-251): Initialize the secondary tags components
                --  located at fixed positions (tags whose position depends on
@@ -2884,17 +2860,8 @@ package body Exp_Ch3 is
                --  Initialize the primary tag
 
                Init_Tags_List := New_List (
-                 Make_Assignment_Statement (Loc,
-                   Name =>
-                     Make_Selected_Component (Loc,
-                       Prefix        => Make_Identifier (Loc, Name_uInit),
-                       Selector_Name =>
-                         New_Occurrence_Of
-                           (First_Tag_Component (Rec_Type), Loc)),
-                   Expression =>
-                     New_Occurrence_Of
-                       (Node
-                         (First_Elmt (Access_Disp_Table (Rec_Type))), Loc)));
+                 Make_Tag_Assignment_From_Type
+                   (Loc, Make_Identifier (Loc, Name_uInit), Rec_Type));
 
                --  Ada 2005 (AI-251): Initialize the secondary tags components
                --  located at fixed positions (tags whose position depends on
@@ -2933,8 +2900,8 @@ package body Exp_Ch3 is
                   while Present (Next (Ins_Nod))
                     and then
                       (Nkind (Ins_Nod) /= N_If_Statement
-                        or else (Nkind (First (Then_Statements (Ins_Nod)))
-                                   /= N_Procedure_Call_Statement)
+                        or else Nkind (First (Then_Statements (Ins_Nod)))
+                                  /= N_Procedure_Call_Statement
                         or else not Is_Init_Proc
                                       (Name (First (Then_Statements
                                          (Ins_Nod)))))
@@ -4483,11 +4450,11 @@ package body Exp_Ch3 is
       Set_Is_Pure (Proc_Name);
    end Build_Slice_Assignment;
 
-   -----------------------------
-   -- Build_Untagged_Equality --
-   -----------------------------
+   ------------------------------------
+   -- Build_Untagged_Record_Equality --
+   ------------------------------------
 
-   procedure Build_Untagged_Equality (Typ : Entity_Id) is
+   procedure Build_Untagged_Record_Equality (Typ : Entity_Id) is
       Build_Eq : Boolean;
       Comp     : Entity_Id;
       Decl     : Node_Id;
@@ -4514,7 +4481,7 @@ package body Exp_Ch3 is
          end if;
       end User_Defined_Eq;
 
-   --  Start of processing for Build_Untagged_Equality
+   --  Start of processing for Build_Untagged_Record_Equality
 
    begin
       --  If a record component has a primitive equality operation, we must
@@ -4591,7 +4558,7 @@ package body Exp_Ch3 is
             Set_Is_Public (Op);
          end if;
       end if;
-   end Build_Untagged_Equality;
+   end Build_Untagged_Record_Equality;
 
    -----------------------------------
    -- Build_Variant_Record_Equality --
@@ -4639,6 +4606,7 @@ package body Exp_Ch3 is
 
    function Build_Variant_Record_Equality
      (Typ         : Entity_Id;
+      Spec_Id     : Entity_Id;
       Body_Id     : Entity_Id;
       Param_Specs : List_Id) return Node_Id
    is
@@ -4685,42 +4653,66 @@ package body Exp_Ch3 is
 
       if Is_Unchecked_Union (Typ) then
          declare
+            Right_Formal : constant Entity_Id :=
+              (if Present (Spec_Id) then Last_Formal (Spec_Id) else Right);
+            Scop : constant Entity_Id :=
+              (if Present (Spec_Id) then Spec_Id else Body_Id);
+
+            procedure Decorate_Extra_Formal (F, F_Typ : Entity_Id);
+            --  Decorate extra formal F with type F_Typ
+
+            ---------------------------
+            -- Decorate_Extra_Formal --
+            ---------------------------
+
+            procedure Decorate_Extra_Formal (F, F_Typ : Entity_Id) is
+            begin
+               Mutate_Ekind  (F, E_In_Parameter);
+               Set_Etype     (F, F_Typ);
+               Set_Scope     (F, Scop);
+               Set_Mechanism (F, By_Copy);
+            end Decorate_Extra_Formal;
+
             A          : Entity_Id;
             B          : Entity_Id;
             Discr      : Entity_Id;
             Discr_Type : Entity_Id;
+            Last_Extra : Entity_Id := Empty;
             New_Discrs : Elist_Id;
 
          begin
+            Mutate_Ekind (Body_Id, E_Subprogram_Body);
             New_Discrs := New_Elmt_List;
 
             Discr := First_Discriminant (Typ);
             while Present (Discr) loop
                Discr_Type := Etype (Discr);
 
+               --  Add the new parameters as extra formals
+
                A :=
                  Make_Defining_Identifier (Loc,
                    Chars => New_External_Name (Chars (Discr), 'A'));
+
+               Decorate_Extra_Formal (A, Discr_Type);
+
+               if Present (Last_Extra) then
+                  Set_Extra_Formal (Last_Extra, A);
+               else
+                  Set_Extra_Formal (Right_Formal, A);
+                  Set_Extra_Formals (Scop, A);
+               end if;
+
+               Append_Elmt (A, New_Discrs);
 
                B :=
                  Make_Defining_Identifier (Loc,
                    Chars => New_External_Name (Chars (Discr), 'B'));
 
-               --  Add new parameters to the parameter list
+               Decorate_Extra_Formal (B, Discr_Type);
 
-               Append_To (Param_Specs,
-                 Make_Parameter_Specification (Loc,
-                   Defining_Identifier => A,
-                   Parameter_Type      =>
-                     New_Occurrence_Of (Discr_Type, Loc)));
-
-               Append_To (Param_Specs,
-                 Make_Parameter_Specification (Loc,
-                   Defining_Identifier => B,
-                   Parameter_Type      =>
-                     New_Occurrence_Of (Discr_Type, Loc)));
-
-               Append_Elmt (A, New_Discrs);
+               Set_Extra_Formal (A, B);
+               Last_Extra := B;
 
                --  Generate the following code to compare each of the inferred
                --  discriminants:
@@ -4739,6 +4731,7 @@ package body Exp_Ch3 is
                      Make_Simple_Return_Statement (Loc,
                        Expression =>
                          New_Occurrence_Of (Standard_False, Loc)))));
+
                Next_Discriminant (Discr);
             end loop;
 
@@ -4896,17 +4889,22 @@ package body Exp_Ch3 is
 
          if No (Init_Proc (Base)) then
 
-            --  If this is an anonymous array created for a declaration with
-            --  an initial value, its init_proc will never be called. The
+            --  If this is an anonymous array built for an object declaration
+            --  with an initial value, its Init_Proc will never be called. The
             --  initial value itself may have been expanded into assignments,
-            --  in which case the object declaration is carries the
-            --  No_Initialization flag.
+            --  in which case the declaration has the No_Initialization flag.
+            --  The exception is when the initial value is a 2-pass aggregate,
+            --  because the special expansion used for it creates a temporary
+            --  that needs a fully-fledged initialization.
 
             if Is_Itype (Base)
               and then Nkind (Associated_Node_For_Itype (Base)) =
                                                     N_Object_Declaration
               and then
-                (Present (Expression (Associated_Node_For_Itype (Base)))
+                ((Present (Expression (Associated_Node_For_Itype (Base)))
+                    and then not
+                      Is_Two_Pass_Aggregate
+                        (Expression (Associated_Node_For_Itype (Base))))
                   or else No_Initialization (Associated_Node_For_Itype (Base)))
             then
                null;
@@ -5007,6 +5005,10 @@ package body Exp_Ch3 is
       --  Do not create TSS routine Finalize_Address for concurrent class-wide
       --  types. Ignore C, C++, CIL and Java types since it is assumed that the
       --  non-Ada side will handle their destruction.
+      --
+      --  Concurrent Ada types are functionally represented by an associated
+      --  "corresponding record type" (typenameV), which owns the actual TSS
+      --  finalize bodies for the type (and technically class-wide type).
 
       elsif Is_Concurrent_Type (Root)
         or else Is_C_Derivation (Root)
@@ -5352,7 +5354,7 @@ package body Exp_Ch3 is
       --  evaluate the conditions.
 
       procedure Build_Variant_Record_Equality (Typ  : Entity_Id);
-      --  Create An Equality function for the untagged variant record Typ and
+      --  Create an equality function for the untagged variant record Typ and
       --  attach it to the TSS list.
 
       procedure Register_Dispatch_Table_Wrappers (Typ : Entity_Id);
@@ -5450,6 +5452,7 @@ package body Exp_Ch3 is
          Discard_Node (
            Build_Variant_Record_Equality
              (Typ         => Typ,
+              Spec_Id     => Empty,
               Body_Id     => F,
               Param_Specs => New_List (
                 Make_Parameter_Specification (Loc,
@@ -5836,25 +5839,18 @@ package body Exp_Ch3 is
          end if;
 
       --  In the untagged case, ever since Ada 83 an equality function must
-      --  be  provided for variant records that are not unchecked unions.
-      --  In Ada 2012 the equality function composes, and thus must be built
-      --  explicitly just as for tagged records.
+      --  be provided for variant records that are not unchecked unions.
 
       elsif Has_Discriminants (Typ)
         and then not Is_Limited_Type (Typ)
+        and then Present (Component_List (Type_Definition (Typ_Decl)))
+        and then
+          Present (Variant_Part (Component_List (Type_Definition (Typ_Decl))))
       then
-         declare
-            Comps : constant Node_Id :=
-                      Component_List (Type_Definition (Typ_Decl));
-         begin
-            if Present (Comps)
-              and then Present (Variant_Part (Comps))
-            then
-               Build_Variant_Record_Equality (Typ);
-            end if;
-         end;
+         Build_Variant_Record_Equality (Typ);
 
-      --  Otherwise create primitive equality operation (AI05-0123)
+      --  In Ada 2012 the equality function composes, and thus must be built
+      --  explicitly just as for tagged records.
 
       --  This is done unconditionally to ensure that tools can be linked
       --  properly with user programs compiled with older language versions.
@@ -5865,7 +5861,7 @@ package body Exp_Ch3 is
         and then Convention (Typ) = Convention_Ada
         and then not Is_Limited_Type (Typ)
       then
-         Build_Untagged_Equality (Typ);
+         Build_Untagged_Record_Equality (Typ);
       end if;
 
       --  Before building the record initialization procedure, if we are
@@ -5874,9 +5870,7 @@ package body Exp_Ch3 is
       --  type and the concurrent record value type. See the section "Handling
       --  of Discriminants" in the Einfo spec for details.
 
-      if Is_Concurrent_Record_Type (Typ)
-        and then Has_Discriminants (Typ)
-      then
+      if Is_Concurrent_Record_Type (Typ) and then Has_Discriminants (Typ) then
          declare
             Ctyp       : constant Entity_Id :=
                            Corresponding_Concurrent_Type (Typ);
@@ -6271,6 +6265,11 @@ package body Exp_Ch3 is
       --  temporary. Func_Id is the enclosing function. Ret_Typ is the return
       --  type of Func_Id. Alloc_Expr is the actual allocator.
 
+      function BIP_Function_Call_Id return Entity_Id;
+      --  If the object initialization expression is a call to a build-in-place
+      --  function, return the id of the called function; otherwise return
+      --  Empty.
+
       procedure Count_Default_Sized_Task_Stacks
         (Typ         : Entity_Id;
          Pri_Stacks  : out Int;
@@ -6607,6 +6606,67 @@ package body Exp_Ch3 is
          end if;
       end Build_Heap_Or_Pool_Allocator;
 
+      --------------------------
+      -- BIP_Function_Call_Id --
+      --------------------------
+
+      function BIP_Function_Call_Id return Entity_Id is
+
+         function Func_Call_Id (Function_Call : Node_Id) return Entity_Id;
+         --  Return the id of the called function.
+
+         function Func_Call_Id (Function_Call : Node_Id) return Entity_Id is
+            Call_Node : constant Node_Id := Unqual_Conv (Function_Call);
+
+         begin
+            if Is_Entity_Name (Name (Call_Node)) then
+               return Entity (Name (Call_Node));
+
+            elsif Nkind (Name (Call_Node)) = N_Explicit_Dereference then
+               return Etype (Name (Call_Node));
+
+            else
+               pragma Assert (Nkind (Name (Call_Node)) = N_Selected_Component);
+               return Etype (Entity (Selector_Name (Name (Call_Node))));
+            end if;
+         end Func_Call_Id;
+
+         --  Local declarations
+
+         BIP_Func_Call : Node_Id;
+         Expr_Q        : constant Node_Id := Unqual_Conv (Expr);
+
+      --  Start of processing for BIP_Function_Call_Id
+
+      begin
+         if Is_Build_In_Place_Function_Call (Expr_Q) then
+            return Func_Call_Id (Expr_Q);
+         end if;
+
+         BIP_Func_Call := Unqual_BIP_Iface_Function_Call (Expr_Q);
+
+         if Present (BIP_Func_Call) then
+
+            --  In the case of an explicitly dereferenced call, return the
+            --  subprogram type.
+
+            if Nkind (Name (BIP_Func_Call)) = N_Explicit_Dereference then
+               return Etype (Name (BIP_Func_Call));
+            else
+               pragma Assert (Is_Entity_Name (Name (BIP_Func_Call)));
+               return Entity (Name (BIP_Func_Call));
+            end if;
+
+         elsif Nkind (Expr_Q) = N_Reference
+                 and then Is_Build_In_Place_Function_Call (Prefix (Expr_Q))
+         then
+            return Func_Call_Id (Prefix (Expr_Q));
+
+         else
+            return Empty;
+         end if;
+      end BIP_Function_Call_Id;
+
       -------------------------------------
       -- Count_Default_Sized_Task_Stacks --
       -------------------------------------
@@ -6896,6 +6956,12 @@ package body Exp_Ch3 is
                  --  violate the predicate.
 
                  and then not Has_Predicates (Component_Type (Typ))
+
+                 --  Array default component value takes precedence over
+                 --  Init_Or_Norm_Scalars.
+
+                 and then No (Find_Aspect (Typ,
+                                           Aspect_Default_Component_Value))
 
                  --  The component type must have a single initialization value
 
@@ -7194,7 +7260,7 @@ package body Exp_Ch3 is
 
          else pragma Assert (Is_Definite_Subtype (Typ)
            or else (Has_Unknown_Discriminants (Typ)
-                     and then Is_Limited_View (Typ)));
+                     and then Is_Inherently_Limited_Type (Typ)));
 
             Alloc_Typ := Typ;
          end if;
@@ -7281,6 +7347,9 @@ package body Exp_Ch3 is
       --  which case the init proc call must be inserted only after the bodies
       --  of the shared variable procedures have been seen.
 
+      Has_BIP_Init_Expr : Boolean := False;
+      --  Whether the object is initialized with a BIP function call
+
       Rewrite_As_Renaming : Boolean := False;
       --  Whether to turn the declaration into a renaming at the end
 
@@ -7321,12 +7390,29 @@ package body Exp_Ch3 is
          Init_After := Make_Shared_Var_Procs (N);
       end if;
 
+      --  Determine whether the object is initialized with a BIP function call
+
+      if Present (Expr) then
+         Expr_Q := Unqualify (Expr);
+
+         Has_BIP_Init_Expr :=
+           Is_Build_In_Place_Function_Call (Expr_Q)
+             or else Present (Unqual_BIP_Iface_Function_Call (Expr_Q))
+             or else (Nkind (Expr_Q) = N_Reference
+                        and then
+                      Is_Build_In_Place_Function_Call (Prefix (Expr_Q)));
+      end if;
+
       --  If tasks are being declared, make sure we have an activation chain
       --  defined for the tasks (has no effect if we already have one), and
       --  also that a Master variable is established (and that the appropriate
       --  enclosing construct is established as a task master).
 
-      if Has_Task (Typ) or else Might_Have_Tasks (Typ) then
+      if Has_Task (Typ)
+        or else Might_Have_Tasks (Typ)
+        or else (Has_BIP_Init_Expr
+                   and then Needs_BIP_Task_Actuals (BIP_Function_Call_Id))
+      then
          Build_Activation_Chain_Entity (N);
 
          if Has_Task (Typ) then
@@ -7334,17 +7420,8 @@ package body Exp_Ch3 is
 
          --  Handle objects initialized with BIP function calls
 
-         elsif Present (Expr) then
-            Expr_Q := Unqualify (Expr);
-
-            if Is_Build_In_Place_Function_Call (Expr_Q)
-              or else Present (Unqual_BIP_Iface_Function_Call (Expr_Q))
-              or else (Nkind (Expr_Q) = N_Reference
-                        and then
-                       Is_Build_In_Place_Function_Call (Prefix (Expr_Q)))
-            then
-               Build_Master_Entity (Def_Id);
-            end if;
+         elsif Has_BIP_Init_Expr then
+            Build_Master_Entity (Def_Id);
          end if;
       end if;
 
@@ -7368,7 +7445,7 @@ package body Exp_Ch3 is
         and then (Restriction_Active (No_Implicit_Heap_Allocations)
           or else Restriction_Active (No_Implicit_Task_Allocations))
         and then not (Ekind (Typ) in E_Array_Type | E_Array_Subtype
-                      and then (Has_Init_Expression (N)))
+                      and then Has_Init_Expression (N))
       then
          declare
             PS_Count, SS_Count : Int := 0;
@@ -7613,7 +7690,7 @@ package body Exp_Ch3 is
                --  and attached to the finalization list.
 
                if Needs_Finalization (Typ)
-                 and then not Is_Limited_View (Typ)
+                 and then not Is_Inherently_Limited_Type (Typ)
                then
                   Adj_Call :=
                     Make_Adjust_Call (
@@ -8019,10 +8096,24 @@ package body Exp_Ch3 is
 
               Is_Entity_Name (Original_Node (Obj_Def))
 
-                --  Nor if it is effectively an unconstrained declaration
+                --  If we have "X : S := ...;", and S is a constrained array
+                --  subtype, then we cannot rename, because renamings ignore
+                --  the constraints of S, so that would change the semantics
+                --  (sliding would not occur on the initial value). This is
+                --  only a problem for source objects though, the others have
+                --  the correct bounds.
 
-                and then not (Is_Array_Type (Typ)
-                               and then Is_Constr_Subt_For_UN_Aliased (Typ))
+                and then not (Comes_From_Source (Obj_Def)
+                               and then Is_Array_Type (Typ)
+                               and then Is_Constrained (Typ))
+
+                --  Moreover, if we have "X : aliased S := "...;" and S is an
+                --  unconstrained array type, then we can rename only if the
+                --  initialization expression has an unconstrained subtype too,
+                --  because the bounds must be present within X.
+
+                and then not (Is_Constr_Array_Subt_With_Bounds (Typ)
+                               and then Is_Constrained (Etype (Expr_Q)))
 
                 --  We may use a renaming if the initialization expression is a
                 --  captured function call that meets a few conditions.
@@ -8030,16 +8121,16 @@ package body Exp_Ch3 is
                 and then
                   (Is_Renamable_Function_Call (Expr_Q)
 
-                   --  Or else if it is a variable with OK_To_Rename set
+                    --  Or else if it is a variable with OK_To_Rename set
 
-                   or else (OK_To_Rename_Ref (Expr_Q)
-                             and then not Special_Ret_Obj)
+                    or else (OK_To_Rename_Ref (Expr_Q)
+                              and then not Special_Ret_Obj)
 
-                   --  Or else if it is a slice of such a variable
+                    --  Or else if it is a slice of such a variable
 
-                   or else (Nkind (Expr_Q) = N_Slice
-                             and then OK_To_Rename_Ref (Prefix (Expr_Q))
-                             and then not Special_Ret_Obj));
+                    or else (Nkind (Expr_Q) = N_Slice
+                              and then OK_To_Rename_Ref (Prefix (Expr_Q))
+                              and then not Special_Ret_Obj));
 
             --  If the type needs finalization and is not inherently limited,
             --  then the target is adjusted after the copy and attached to the
@@ -8051,7 +8142,7 @@ package body Exp_Ch3 is
             --  the object declaration into a renaming declaration.
 
             if Needs_Finalization (Typ)
-              and then not Is_Limited_View (Typ)
+              and then not Is_Inherently_Limited_Type (Typ)
               and then Nkind (Expr_Q) /= N_Function_Call
               and then not Rewrite_As_Renaming
             then
@@ -8873,6 +8964,10 @@ package body Exp_Ch3 is
              Defining_Identifier => Def_Id,
              Subtype_Mark        => New_Occurrence_Of (Etype (Def_Id), Loc),
              Name                => Expr_Q));
+
+         --  Keep original aspects
+
+         Move_Aspects (Original_Node (N), N);
 
          --  We do not analyze this renaming declaration, because all its
          --  components have already been analyzed, and if we were to go
@@ -11181,8 +11276,6 @@ package body Exp_Ch3 is
             --  is a wrapper's body in order to get check suppression right.
 
             Set_Corresponding_Spec (Func_Body, Func_Id);
-
-            Override_Dispatching_Operation (Tag_Typ, Subp, New_Op => Func_Id);
          end if;
 
       <<Next_Prim>>
@@ -11934,8 +12027,8 @@ package body Exp_Ch3 is
 
       --  Spec of Put_Image
 
-      if (not No_Run_Time_Mode)
-         and then RTE_Available (RE_Root_Buffer_Type)
+      if not No_Run_Time_Mode
+        and then RTE_Available (RE_Root_Buffer_Type)
       then
          --  No_Run_Time_Mode implies that the declaration of Tag_Typ
          --  (like any tagged type) will be rejected. Given this, avoid
@@ -12121,12 +12214,10 @@ package body Exp_Ch3 is
 
    function Make_Tag_Assignment (N : Node_Id) return Node_Id is
       Loc      : constant Source_Ptr := Sloc (N);
-      Def_If   : constant Entity_Id  := Defining_Identifier (N);
+      Def_Id   : constant Entity_Id  := Defining_Identifier (N);
       Expr     : constant Node_Id    := Expression (N);
-      Typ      : constant Entity_Id  := Etype (Def_If);
+      Typ      : constant Entity_Id  := Etype (Def_Id);
       Full_Typ : constant Entity_Id  := Underlying_Type (Typ);
-
-      New_Ref  : Node_Id;
 
    begin
       --  This expansion activity is called during analysis
@@ -12135,25 +12226,12 @@ package body Exp_Ch3 is
         and then not Is_Class_Wide_Type (Typ)
         and then not Is_CPP_Class (Typ)
         and then Tagged_Type_Expansion
-        and then Nkind (Expr) /= N_Aggregate
-        and then (Nkind (Expr) /= N_Qualified_Expression
-                   or else Nkind (Expression (Expr)) /= N_Aggregate)
+        and then Nkind (Unqualify (Expr)) /= N_Aggregate
       then
-         New_Ref :=
-           Make_Selected_Component (Loc,
-             Prefix        => New_Occurrence_Of (Def_If, Loc),
-             Selector_Name =>
-               New_Occurrence_Of (First_Tag_Component (Full_Typ), Loc));
-
-         Set_Assignment_OK (New_Ref);
-
          return
-           Make_Assignment_Statement (Loc,
-             Name       => New_Ref,
-             Expression =>
-               Unchecked_Convert_To (RTE (RE_Tag),
-                 New_Occurrence_Of
-                   (Node (First_Elmt (Access_Disp_Table (Full_Typ))), Loc)));
+           Make_Tag_Assignment_From_Type
+             (Loc, New_Occurrence_Of (Def_Id, Loc), Full_Typ);
+
       else
          return Empty;
       end if;
@@ -12449,7 +12527,7 @@ package body Exp_Ch3 is
       --  Body of Put_Image
 
       if No (TSS (Tag_Typ, TSS_Put_Image))
-         and then (not No_Run_Time_Mode)
+         and then not No_Run_Time_Mode
          and then RTE_Available (RE_Root_Buffer_Type)
       then
          Build_Record_Put_Image_Procedure (Loc, Tag_Typ, Decl, Ent);
@@ -12465,14 +12543,14 @@ package body Exp_Ch3 is
       if Stream_Operation_OK (Tag_Typ, TSS_Stream_Read)
         and then No (TSS (Tag_Typ, TSS_Stream_Read))
       then
-         Build_Record_Read_Procedure (Loc, Tag_Typ, Decl, Ent);
+         Build_Record_Read_Procedure (Tag_Typ, Decl, Ent);
          Append_To (Res, Decl);
       end if;
 
       if Stream_Operation_OK (Tag_Typ, TSS_Stream_Write)
         and then No (TSS (Tag_Typ, TSS_Stream_Write))
       then
-         Build_Record_Write_Procedure (Loc, Tag_Typ, Decl, Ent);
+         Build_Record_Write_Procedure (Tag_Typ, Decl, Ent);
          Append_To (Res, Decl);
       end if;
 
@@ -12484,14 +12562,14 @@ package body Exp_Ch3 is
         and then No (TSS (Tag_Typ, TSS_Stream_Input))
       then
          Build_Record_Or_Elementary_Input_Function
-           (Loc, Tag_Typ, Decl, Ent);
+           (Tag_Typ, Decl, Ent);
          Append_To (Res, Decl);
       end if;
 
       if Stream_Operation_OK (Tag_Typ, TSS_Stream_Output)
         and then No (TSS (Tag_Typ, TSS_Stream_Output))
       then
-         Build_Record_Or_Elementary_Output_Procedure (Loc, Tag_Typ, Decl, Ent);
+         Build_Record_Or_Elementary_Output_Procedure (Tag_Typ, Decl, Ent);
          Append_To (Res, Decl);
       end if;
 

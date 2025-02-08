@@ -1,6 +1,6 @@
 // Core algorithmic facilities -*- C++ -*-
 
-// Copyright (C) 2020-2023 Free Software Foundation, Inc.
+// Copyright (C) 2020-2024 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -252,7 +252,7 @@ namespace ranges
 	{
 	  if (!std::__is_constant_evaluated())
 	    {
-	      if constexpr (__memcpyable<_Iter, _Out>::__value)
+	      if constexpr (__memcpyable<_Out, _Iter>::__value)
 		{
 		  using _ValueTypeI = iter_value_t<_Iter>;
 		  static_assert(_IsMove
@@ -567,7 +567,7 @@ namespace ranges
 	if constexpr (sized_sentinel_for<_Sent, _Out>)
 	  {
 	    const auto __len = __last - __first;
-	    return ranges::fill_n(__first, __len, __value);
+	    return ranges::fill_n(std::move(__first), __len, __value);
 	  }
 	else if constexpr (is_scalar_v<_Tp>)
 	  {

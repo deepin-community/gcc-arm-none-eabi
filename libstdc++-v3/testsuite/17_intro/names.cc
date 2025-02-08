@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2023 Free Software Foundation, Inc.
+// Copyright (C) 2017-2024 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -136,10 +136,13 @@
 // <charconv> defines to_chars_result::ptr and to_chars_result::ec
 #define ec (
 #define ptr (
+// <map> and <unordered_map> define try_emplace
+#define try_emplace (
 #endif
 
 // These clash with newlib so don't use them.
 # define __lockable		cannot be used as an identifier
+# define __null_sentinel	cannot be used as an identifier
 # define __packed		cannot be used as an identifier
 # define __unused		cannot be used as an identifier
 # define __used			cannot be used as an identifier
@@ -239,6 +242,8 @@
 #undef r
 #undef x
 #undef y
+// <sys/poll.h> defines pollfd_ext::u on AIX 7.3
+#undef u
 // <sys/var.h> defines vario::v
 #undef v
 // <sys/timer.h> defines trb::func and cputime_tmr::func
@@ -265,6 +270,12 @@
 #if defined (__linux__) && defined (__powerpc__)
 // <asm/types.h> defines __vector128::u
 #undef u
+#endif
+
+#if defined (__linux__) && defined (__s390__)
+// <sys/ucontext.h> defines fpreg_t::d and fpreg_t::f
+#undef d
+#undef f
 #endif
 
 #if defined (__linux__) && defined (__sparc__)

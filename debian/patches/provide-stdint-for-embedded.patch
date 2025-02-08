@@ -18,10 +18,10 @@ Date:   Wed Sep 4 10:22:49 2019 -0700
  1 file changed, 19 insertions(+)
 
 diff --git a/gcc/config.gcc b/gcc/config.gcc
-index 648b3dc..d17b2ce 100644
+index a3566f5..68ca159 100644
 --- a/gcc/config.gcc
 +++ b/gcc/config.gcc
-@@ -3538,6 +3538,25 @@ m32c-*-elf*)
+@@ -3625,6 +3625,25 @@ m32c-*-elf*)
  	;;
  esac
  

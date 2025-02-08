@@ -1,5 +1,5 @@
 /* Get CPU type and Features for x86 processors.
-   Copyright (C) 2012-2023 Free Software Foundation, Inc.
+   Copyright (C) 2012-2024 Free Software Foundation, Inc.
    Contributed by Sriraman Tallam (tmsriram@google.com)
 
 This file is part of GCC.
@@ -62,6 +62,8 @@ enum processor_types
   ZHAOXIN_FAM7H,
   INTEL_SIERRAFOREST,
   INTEL_GRANDRIDGE,
+  INTEL_CLEARWATERFOREST,
+  AMDFAM1AH,
   CPU_TYPE_MAX,
   BUILTIN_CPU_TYPE_MAX = CPU_TYPE_MAX
 };
@@ -99,13 +101,18 @@ enum processor_subtypes
   AMDFAM19H_ZNVER4,
   INTEL_COREI7_GRANITERAPIDS,
   INTEL_COREI7_GRANITERAPIDS_D,
+  INTEL_COREI7_ARROWLAKE,
+  INTEL_COREI7_ARROWLAKE_S,
+  INTEL_COREI7_PANTHERLAKE,
+  ZHAOXIN_FAM7H_YONGFENG,
+  AMDFAM1AH_ZNVER5,
   CPU_SUBTYPE_MAX
 };
 
 /* Priority of i386 features, greater value is higher priority.   This is
    used to decide the order in which function dispatch must happen.  For
    instance, a version specialized for SSE4.2 should be checked for dispatch
-   before a version for SSE3, as SSE4.2 implies SSE3.  */
+   before a version for SSE3.  */
 enum feature_priority
 {
   P_NONE = 0,
@@ -141,6 +148,9 @@ enum feature_priority
   P_AVX512F,
   P_PROC_AVX512F,
   P_X86_64_V4,
+  P_AVX10_1_256,
+  P_AVX10_1_512,
+  P_PROC_AVX10_1_512,
   P_PROC_DYNAMIC
 };
 
@@ -255,6 +265,14 @@ enum processor_features
   FEATURE_PREFETCHI,
   FEATURE_RAOINT,
   FEATURE_AMX_COMPLEX,
+  FEATURE_AVXVNNIINT16,
+  FEATURE_SM3,
+  FEATURE_SHA512,
+  FEATURE_SM4,
+  FEATURE_APX_F,
+  FEATURE_USER_MSR,
+  FEATURE_AVX10_1_256,
+  FEATURE_AVX10_1_512,
   CPU_FEATURE_MAX
 };
 

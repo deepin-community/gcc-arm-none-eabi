@@ -1,5 +1,5 @@
 /* All matcher functions.
-   Copyright (C) 2003-2023 Free Software Foundation, Inc.
+   Copyright (C) 2003-2024 Free Software Foundation, Inc.
    Contributed by Steven Bosscher
 
 This file is part of GCC.
@@ -149,6 +149,8 @@ match gfc_match_oacc_routine (void);
 
 /* OpenMP directive matchers.  */
 match gfc_match_omp_eos_error (void);
+match gfc_match_omp_allocate (void);
+match gfc_match_omp_allocators (void);
 match gfc_match_omp_assume (void);
 match gfc_match_omp_assumes (void);
 match gfc_match_omp_atomic (void);
@@ -298,7 +300,7 @@ match gfc_match_bind_c_stmt (void);
 match gfc_match_bind_c (gfc_symbol *, bool);
 
 /* primary.cc.  */
-match gfc_match_structure_constructor (gfc_symbol *, gfc_expr **);
+match gfc_match_structure_constructor (gfc_symbol *, gfc_symtree *, gfc_expr **);
 match gfc_match_variable (gfc_expr **, int);
 match gfc_match_equiv_variable (gfc_expr **);
 match gfc_match_actual_arglist (int, gfc_actual_arglist **, bool = false);

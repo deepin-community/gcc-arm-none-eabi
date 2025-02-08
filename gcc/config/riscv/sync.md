@@ -1,5 +1,5 @@
 ;; Machine description for RISC-V atomic operations.
-;; Copyright (C) 2011-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2024 Free Software Foundation, Inc.
 ;; Contributed by Andrew Waterman (andrew@sifive.com).
 ;; Based on MIPS target for GNU compiler.
 
@@ -36,88 +36,55 @@
 (define_expand "mem_thread_fence"
   [(match_operand:SI 0 "const_int_operand" "")] ;; model
   ""
-{
-  if (INTVAL (operands[0]) != MEMMODEL_RELAXED)
-    {
-      rtx mem = gen_rtx_MEM (BLKmode, gen_rtx_SCRATCH (Pmode));
-      MEM_VOLATILE_P (mem) = 1;
-      emit_insn (gen_mem_thread_fence_1 (mem, operands[0]));
-    }
-  DONE;
-})
-
-(define_insn "mem_thread_fence_1"
-  [(set (match_operand:BLK 0 "" "")
-	(unspec:BLK [(match_dup 0)] UNSPEC_MEMORY_BARRIER))
-   (match_operand:SI 1 "const_int_operand" "")] ;; model
-  ""
   {
-    enum memmodel model = (enum memmodel) INTVAL (operands[1]);
-    model = memmodel_base (model);
-    if (model == MEMMODEL_SEQ_CST)
-	return "fence\trw,rw";
-    else if (model == MEMMODEL_ACQ_REL)
-	return "fence.tso";
-    else if (model == MEMMODEL_ACQUIRE)
-	return "fence\tr,rw";
-    else if (model == MEMMODEL_RELEASE)
-	return "fence\trw,w";
-    else
-	gcc_unreachable ();
-  }
-  [(set (attr "length") (const_int 4))])
+    enum memmodel model = memmodel_base (INTVAL (operands[0]));
+
+    if (TARGET_ZTSO && model == MEMMODEL_SEQ_CST)
+      {
+	rtx mem = gen_rtx_MEM (BLKmode, gen_rtx_SCRATCH (Pmode));
+	MEM_VOLATILE_P (mem) = 1;
+	emit_insn (gen_mem_thread_fence_ztso (mem, operands[0]));
+      }
+    else if (!TARGET_ZTSO && model != MEMMODEL_RELAXED)
+      {
+	rtx mem = gen_rtx_MEM (BLKmode, gen_rtx_SCRATCH (Pmode));
+	MEM_VOLATILE_P (mem) = 1;
+	emit_insn (gen_mem_thread_fence_rvwmo (mem, operands[0]));
+      }
+    DONE;
+  })
 
 ;; Atomic memory operations.
 
-(define_insn "atomic_load<mode>"
-  [(set (match_operand:GPR 0 "register_operand" "=r")
-    (unspec_volatile:GPR
-      [(match_operand:GPR 1 "memory_operand" "A")
-       (match_operand:SI 2 "const_int_operand")]      ;; model
-      UNSPEC_ATOMIC_LOAD))]
-  "TARGET_ATOMIC"
+(define_expand "atomic_load<mode>"
+  [(match_operand:GPR 0 "register_operand")
+   (match_operand:GPR 1 "memory_operand")
+   (match_operand:SI 2 "const_int_operand")] ;; model
+  ""
   {
-    enum memmodel model = (enum memmodel) INTVAL (operands[2]);
-    model = memmodel_base (model);
-
-    if (model == MEMMODEL_SEQ_CST)
-      return "fence\trw,rw\;"
-	     "l<amo>\t%0,%1\;"
-	     "fence\tr,rw";
-    if (model == MEMMODEL_ACQUIRE)
-      return "l<amo>\t%0,%1\;"
-	     "fence\tr,rw";
+    if (TARGET_ZTSO)
+      emit_insn (gen_atomic_load_ztso<mode> (operands[0], operands[1],
+					     operands[2]));
     else
-      return "l<amo>\t%0,%1";
-  }
-  [(set_attr "type" "atomic")
-   (set (attr "length") (const_int 12))])
+      emit_insn (gen_atomic_load_rvwmo<mode> (operands[0], operands[1],
+					      operands[2]));
+    DONE;
+  })
 
-;; Implement atomic stores with conservative fences.
-;; This allows us to be compatible with the ISA manual Table A.6 and Table A.7.
-(define_insn "atomic_store<mode>"
-  [(set (match_operand:GPR 0 "memory_operand" "=A")
-    (unspec_volatile:GPR
-      [(match_operand:GPR 1 "reg_or_0_operand" "rJ")
-       (match_operand:SI 2 "const_int_operand")]      ;; model
-      UNSPEC_ATOMIC_STORE))]
-  "TARGET_ATOMIC"
+(define_expand "atomic_store<mode>"
+  [(match_operand:GPR 0 "memory_operand")
+   (match_operand:GPR 1 "reg_or_0_operand")
+   (match_operand:SI 2 "const_int_operand")] ;; model
+  ""
   {
-    enum memmodel model = (enum memmodel) INTVAL (operands[2]);
-    model = memmodel_base (model);
-
-    if (model == MEMMODEL_SEQ_CST)
-      return "fence\trw,w\;"
-	     "s<amo>\t%z1,%0\;"
-	     "fence\trw,rw";
-    if (model == MEMMODEL_RELEASE)
-      return "fence\trw,w\;"
-	     "s<amo>\t%z1,%0";
+    if (TARGET_ZTSO)
+      emit_insn (gen_atomic_store_ztso<mode> (operands[0], operands[1],
+					      operands[2]));
     else
-      return "s<amo>\t%z1,%0";
-  }
-  [(set_attr "type" "atomic")
-   (set (attr "length") (const_int 12))])
+      emit_insn (gen_atomic_store_rvwmo<mode> (operands[0], operands[1],
+					       operands[2]));
+    DONE;
+  })
 
 (define_insn "atomic_<atomic_optab><mode>"
   [(set (match_operand:GPR 0 "memory_operand" "+A")
@@ -169,7 +136,8 @@
 	   "sc.w%J3\t%6, %7, %1\;"
 	   "bnez\t%6, 1b";
   }
-  [(set (attr "length") (const_int 28))])
+  [(set_attr "type" "multi")
+   (set (attr "length") (const_int 28))])
 
 (define_expand "atomic_fetch_nand<mode>"
   [(match_operand:SHORT 0 "register_operand")			      ;; old value at mem
@@ -236,7 +204,8 @@
 	   "sc.w%J3\t%6, %7, %1\;"
 	   "bnez\t%6, 1b";
   }
-  [(set (attr "length") (const_int 32))])
+  [(set_attr "type" "multi")
+   (set (attr "length") (const_int 32))])
 
 (define_expand "atomic_fetch_<atomic_optab><mode>"
   [(match_operand:SHORT 0 "register_operand")			 ;; old value at mem
@@ -343,7 +312,8 @@
 	   "sc.w%J3\t%5, %5, %1\;"
 	   "bnez\t%5, 1b";
   }
-  [(set (attr "length") (const_int 20))])
+  [(set_attr "type" "multi")
+   (set (attr "length") (const_int 20))])
 
 (define_insn "atomic_cas_value_strong<mode>"
   [(set (match_operand:GPR 0 "register_operand" "=&r")
@@ -369,7 +339,7 @@
 	   "bnez\t%6,1b\;"
 	   "1:";
   }
-  [(set_attr "type" "atomic")
+  [(set_attr "type" "multi")
    (set (attr "length") (const_int 16))])
 
 (define_expand "atomic_compare_and_swap<mode>"
@@ -383,6 +353,15 @@
    (match_operand:SI 7 "const_int_operand" "")] ;; mod_f
   "TARGET_ATOMIC"
 {
+  if (word_mode != <MODE>mode && operands[3] != const0_rtx)
+    {
+      /* We don't have SI mode compare on RV64, so we need to make sure expected
+	 value is sign-extended.  */
+      rtx tmp0 = gen_reg_rtx (word_mode);
+      emit_insn (gen_extend_insn (tmp0, operands[3], word_mode, <MODE>mode, 0));
+      operands[3] = simplify_gen_subreg (<MODE>mode, tmp0, word_mode, 0);
+    }
+
   emit_insn (gen_atomic_cas_value_strong<mode> (operands[1], operands[2],
 						operands[3], operands[4],
 						operands[6], operands[7]));
@@ -530,46 +509,40 @@
 	   "bnez\t%7, 1b\;"
 	   "1:";
   }
-  [(set (attr "length") (const_int 28))])
+  [(set_attr "type" "multi")
+   (set (attr "length") (const_int 28))])
 
 (define_expand "atomic_test_and_set"
-  [(match_operand:QI 0 "register_operand" "")     ;; bool output
+  [(match_operand:QI 0 "register_operand" "")    ;; bool output
    (match_operand:QI 1 "memory_operand" "+A")    ;; memory
-   (match_operand:SI 2 "const_int_operand" "")]   ;; model
+   (match_operand:SI 2 "const_int_operand" "")]  ;; model
   "TARGET_ATOMIC"
 {
   /* We have no QImode atomics, so use the address LSBs to form a mask,
      then use an aligned SImode atomic.  */
-  rtx result = operands[0];
+  rtx old = gen_reg_rtx (SImode);
   rtx mem = operands[1];
   rtx model = operands[2];
-  rtx addr = force_reg (Pmode, XEXP (mem, 0));
+  rtx set = gen_reg_rtx (QImode);
+  rtx aligned_mem = gen_reg_rtx (SImode);
+  rtx shift = gen_reg_rtx (SImode);
 
-  rtx aligned_addr = gen_reg_rtx (Pmode);
-  emit_move_insn (aligned_addr, gen_rtx_AND (Pmode, addr, GEN_INT (-4)));
+  /* Unused.  */
+  rtx _mask = gen_reg_rtx (SImode);
+  rtx _not_mask = gen_reg_rtx (SImode);
 
-  rtx aligned_mem = change_address (mem, SImode, aligned_addr);
-  set_mem_alias_set (aligned_mem, 0);
+  riscv_subword_address (mem, &aligned_mem, &shift, &_mask, &_not_mask);
 
-  rtx offset = gen_reg_rtx (SImode);
-  emit_move_insn (offset, gen_rtx_AND (SImode, gen_lowpart (SImode, addr),
-				       GEN_INT (3)));
+  emit_move_insn (set, GEN_INT (1));
+  rtx shifted_set = gen_reg_rtx (SImode);
+  riscv_lshift_subword (QImode, set, shift, &shifted_set);
 
-  rtx tmp = gen_reg_rtx (SImode);
-  emit_move_insn (tmp, GEN_INT (1));
+  emit_insn (gen_atomic_fetch_orsi (old, aligned_mem, shifted_set, model));
 
-  rtx shmt = gen_reg_rtx (SImode);
-  emit_move_insn (shmt, gen_rtx_ASHIFT (SImode, offset, GEN_INT (3)));
+  emit_move_insn (old, gen_rtx_ASHIFTRT (SImode, old,
+					 gen_lowpart (QImode, shift)));
 
-  rtx word = gen_reg_rtx (SImode);
-  emit_move_insn (word, gen_rtx_ASHIFT (SImode, tmp,
-					gen_lowpart (QImode, shmt)));
+  emit_move_insn (operands[0], gen_lowpart (QImode, old));
 
-  tmp = gen_reg_rtx (SImode);
-  emit_insn (gen_atomic_fetch_orsi (tmp, aligned_mem, word, model));
-
-  emit_move_insn (gen_lowpart (SImode, result),
-		  gen_rtx_LSHIFTRT (SImode, tmp,
-				    gen_lowpart (QImode, shmt)));
   DONE;
 })

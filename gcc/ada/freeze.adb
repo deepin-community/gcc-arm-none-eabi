@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2024, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -42,6 +42,7 @@ with Exp_Tss;        use Exp_Tss;
 with Ghost;          use Ghost;
 with Layout;         use Layout;
 with Lib;            use Lib;
+with Local_Restrict;
 with Namet;          use Namet;
 with Nlists;         use Nlists;
 with Nmake;          use Nmake;
@@ -797,7 +798,7 @@ package body Freeze is
          --  limited objects.
 
          if Present (Init)
-           and then not Is_Limited_View (Typ)
+           and then not Is_Inherently_Limited_Type (Typ)
          then
             --  Capture initialization value at point of declaration, and make
             --  explicit assignment legal, because object may be a constant.
@@ -1555,7 +1556,6 @@ package body Freeze is
          Par_Prim     : Entity_Id;
          Wrapped_Subp : Entity_Id) return Node_Id
       is
-         Par_Typ    : constant Entity_Id := Find_Dispatching_Type (Par_Prim);
          Actuals    : constant List_Id   := Empty_List;
          Call       : Node_Id;
          Formal     : Entity_Id := First_Formal (Par_Prim);
@@ -1571,12 +1571,10 @@ package body Freeze is
             --  If the controlling argument is inherited, add conversion to
             --  parent type for the call.
 
-            if Etype (Formal) = Par_Typ
-              and then Is_Controlling_Formal (Formal)
-            then
+            if Is_Controlling_Formal (Formal) then
                Append_To (Actuals,
                  Make_Type_Conversion (Loc,
-                   New_Occurrence_Of (Par_Typ, Loc),
+                   New_Occurrence_Of (Etype (Formal), Loc),
                    New_Occurrence_Of (New_Formal, Loc)));
             else
                Append_To (Actuals, New_Occurrence_Of (New_Formal, Loc));
@@ -1904,8 +1902,8 @@ package body Freeze is
                      if Iface_Prim /= Par_Prim
                        and then Chars (Iface_Prim) = Chars (Prim)
                        and then Comes_From_Source (Iface_Prim)
-                       and then (Is_Interface_Conformant
-                                   (R, Iface_Prim, Prim))
+                       and then Is_Interface_Conformant
+                                  (R, Iface_Prim, Prim)
                      then
                         Check_Same_Strub_Mode (Prim, Iface_Prim);
                      end if;
@@ -5517,7 +5515,7 @@ package body Freeze is
 
             if Warn_On_Redundant_Constructs then
                Error_Msg_N -- CODEFIX
-                 ("??pragma Pack has no effect, no unplaced components",
+                 ("?r?pragma Pack has no effect, no unplaced components",
                   Get_Rep_Pragma (Rec, Name_Pack));
             end if;
          end if;
@@ -5688,77 +5686,6 @@ package body Freeze is
                     ("\use explicit pragma Pack "
                      & "or use pragma Implicit_Packing", Sz);
                end;
-            end if;
-         end if;
-
-         --  The following checks are relevant only when SPARK_Mode is on as
-         --  they are not standard Ada legality rules.
-
-         if SPARK_Mode = On then
-
-            --  A discriminated type cannot be effectively volatile
-            --  (SPARK RM 7.1.3(5)).
-
-            if Is_Effectively_Volatile (Rec) then
-               if Has_Discriminants (Rec) then
-                  Error_Msg_N ("discriminated type & cannot be volatile", Rec);
-               end if;
-
-            --  A non-effectively volatile record type cannot contain
-            --  effectively volatile components (SPARK RM 7.1.3(6)).
-
-            else
-               Comp := First_Component (Rec);
-               while Present (Comp) loop
-                  if Comes_From_Source (Comp)
-                    and then Is_Effectively_Volatile (Etype (Comp))
-                  then
-                     Error_Msg_Name_1 := Chars (Rec);
-                     Error_Msg_N
-                       ("component & of non-volatile type % cannot be "
-                        & "volatile", Comp);
-                  end if;
-
-                  Next_Component (Comp);
-               end loop;
-            end if;
-
-            --  A type which does not yield a synchronized object cannot have
-            --  a component that yields a synchronized object (SPARK RM 9.5).
-
-            if not Yields_Synchronized_Object (Rec) then
-               Comp := First_Component (Rec);
-               while Present (Comp) loop
-                  if Comes_From_Source (Comp)
-                    and then Yields_Synchronized_Object (Etype (Comp))
-                  then
-                     Error_Msg_Name_1 := Chars (Rec);
-                     Error_Msg_N
-                       ("component & of non-synchronized type % cannot be "
-                        & "synchronized", Comp);
-                  end if;
-
-                  Next_Component (Comp);
-               end loop;
-            end if;
-
-            --  A Ghost type cannot have a component of protected or task type
-            --  (SPARK RM 6.9(19)).
-
-            if Is_Ghost_Entity (Rec) then
-               Comp := First_Component (Rec);
-               while Present (Comp) loop
-                  if Comes_From_Source (Comp)
-                    and then Is_Concurrent_Type (Etype (Comp))
-                  then
-                     Error_Msg_Name_1 := Chars (Rec);
-                     Error_Msg_N
-                       ("component & of ghost type % cannot be concurrent",
-                        Comp);
-                  end if;
-
-                  Next_Component (Comp);
-               end loop;
             end if;
          end if;
 
@@ -6191,7 +6118,20 @@ package body Freeze is
       --  Do not freeze if already frozen since we only need one freeze node
 
       if Is_Frozen (E) then
-         Result := No_List;
+
+         if Is_Itype (E)
+           and then not Is_Base_Type (E)
+           and then not Is_Frozen (Etype (E))
+         then
+            --  If a frozen subtype of an unfrozen type seems impossible
+            --  then see Analyze_Protected_Definition.Undelay_Itypes.
+
+            Result := Freeze_Entity
+                        (Etype (E), N, Do_Freeze_Profile => Do_Freeze_Profile);
+         else
+            Result := No_List;
+         end if;
+
          goto Leave;
 
       --  Do not freeze if we are preanalyzing without freezing
@@ -7298,10 +7238,20 @@ package body Freeze is
          elsif Is_Integer_Type (E) then
             Adjust_Esize_For_Alignment (E);
 
-            if Is_Modular_Integer_Type (E)
-              and then Warn_On_Suspicious_Modulus_Value
-            then
-               Check_Suspicious_Modulus (E);
+            if Is_Modular_Integer_Type (E) then
+               --  Standard_Address has been built with the assumption that its
+               --  modulus was System_Address_Size, but this is not a universal
+               --  property and may need to be corrected.
+
+               if Is_RTE (E, RE_Address) then
+                  Set_Modulus (Standard_Address, Modulus (E));
+                  Set_Intval
+                    (High_Bound (Scalar_Range (Standard_Address)),
+                     Modulus (E) - 1);
+
+               elsif Warn_On_Suspicious_Modulus_Value then
+                  Check_Suspicious_Modulus (E);
+               end if;
             end if;
 
          --  The pool applies to named and anonymous access types, but not
@@ -7425,7 +7375,8 @@ package body Freeze is
                --  be an array type, or a nonlimited record type).
 
                if Has_Private_Declaration (E) then
-                  if (not Is_Record_Type (E) or else not Is_Limited_View (E))
+                  if (not Is_Record_Type (E)
+                       or else not Is_Inherently_Limited_Type (E))
                     and then not Is_Private_Type (E)
                   then
                      Error_Msg_Name_1 := Name_Simple_Storage_Pool_Type;
@@ -8025,6 +7976,16 @@ package body Freeze is
 
    procedure Freeze_Expression (N : Node_Id) is
 
+      function Declared_In_Expanded_Body
+        (N   : Node_Id;
+         Typ : Entity_Id;
+         Nam : Entity_Id) return Boolean;
+      --  Given the N_Handled_Sequence_Of_Statements node of an expander
+      --  generated subprogram body, determines if the frozen entity is
+      --  declared inside this body. This is recognized locating the
+      --  enclosing subprogram of the entity Name or its Type and
+      --  checking if it is this subprogram body.
+
       function Find_Aggregate_Component_Desig_Type return Entity_Id;
       --  If the expression is an array aggregate, the type of the component
       --  expressions is also frozen. If the component type is an access type
@@ -8044,6 +8005,45 @@ package body Freeze is
          L : List_Id) return Boolean;
       --  Determines whether an entity E referenced in node N is declared in
       --  the list L.
+
+      -------------------------------
+      -- Declared_In_Expanded_Body --
+      -------------------------------
+
+      function Declared_In_Expanded_Body
+        (N   : Node_Id;
+         Typ : Entity_Id;
+         Nam : Entity_Id) return Boolean
+      is
+         pragma Assert (In_Expanded_Body (N));
+
+         Subp_Body : constant Node_Id := Parent (N);
+         Subp_Id   : Entity_Id;
+         Scop      : Entity_Id;
+
+      begin
+         if Acts_As_Spec (Subp_Body) then
+            Subp_Id := Unique_Defining_Entity (Specification (Subp_Body));
+         else
+            Subp_Id := Corresponding_Spec (Subp_Body);
+         end if;
+
+         if Present (Typ) then
+            Scop := Scope (Typ);
+         elsif Present (Nam) then
+            Scop := Scope (Nam);
+         else
+            Scop := Standard_Standard;
+         end if;
+
+         while Scop /= Standard_Standard
+           and then not Is_Subprogram (Scop)
+         loop
+            Scop := Scope (Scop);
+         end loop;
+
+         return Scop = Subp_Id;
+      end Declared_In_Expanded_Body;
 
       -----------------------------------------
       -- Find_Aggregate_Component_Desig_Type --
@@ -8091,11 +8091,13 @@ package body Freeze is
          if Nkind (P) /= N_Subprogram_Body then
             return False;
 
-         --  AI12-0157: An expression function that is a completion is a freeze
-         --  point. If the body is the result of expansion, it is not.
+         --  Treat the generated body of an expression function like other
+         --  bodies generated during expansion (e.g. stream subprograms) so
+         --  that those bodies are not treated as freezing points.
 
          elsif Was_Expression_Function (P) then
-            return not Comes_From_Source (P);
+            pragma Assert (not Comes_From_Source (P));
+            return True;
 
          --  This is the body of a generated predicate function
 
@@ -8139,10 +8141,19 @@ package body Freeze is
          Decl_Node : Node_Id;
 
       begin
-         --  If E is an itype, pretend that it is declared in N
+         --  If E is an itype, pretend that it is declared in N except for a
+         --  class-wide subtype with an equivalent type, because this latter
+         --  type comes with a bona-fide declaration node.
 
          if Is_Itype (E) then
-            Decl_Node := N;
+            if Ekind (E) = E_Class_Wide_Subtype
+              and then Present (Equivalent_Type (E))
+            then
+               Decl_Node := Declaration_Node (Equivalent_Type (E));
+            else
+               Decl_Node := N;
+            end if;
+
          else
             Decl_Node := Declaration_Node (E);
          end if;
@@ -8162,14 +8173,6 @@ package body Freeze is
       Typ       : Entity_Id;
 
       Allocator_Typ : Entity_Id := Empty;
-
-      Freeze_Outside : Boolean := False;
-      --  This flag is set true if the entity must be frozen outside the
-      --  current subprogram. This happens in the case of expander generated
-      --  subprograms (_Init_Proc, _Input, _Output, _Read, _Write) which do
-      --  not freeze all entities like other bodies, but which nevertheless
-      --  may reference entities that have to be frozen before the body and
-      --  obviously cannot be frozen inside the body.
 
       Freeze_Outside_Subp  : Entity_Id := Empty;
       --  This entity is set if we are inside a subprogram body and the frozen
@@ -8310,7 +8313,7 @@ package body Freeze is
 
       if Desig_Typ /= Empty
         and then (Is_Frozen (Desig_Typ)
-                   or else (not Is_Fully_Defined (Desig_Typ)))
+                   or else not Is_Fully_Defined (Desig_Typ))
       then
          Desig_Typ := Empty;
       end if;
@@ -8453,7 +8456,7 @@ package body Freeze is
 
                   if not In_Spec_Expression
                     and then Nkind (N) = N_Identifier
-                    and then (Present (Entity (N)))
+                    and then Present (Entity (N))
                   then
                      --  We recognize the discriminant case by just looking for
                      --  a reference to a discriminant. It can only be one for
@@ -8515,79 +8518,11 @@ package body Freeze is
                   --  An exception occurs when the sequence of statements is
                   --  for an expander generated body that did not do the usual
                   --  freeze all operation. In this case we usually want to
-                  --  freeze outside this body, not inside it, and we skip
-                  --  past the subprogram body that we are inside.
+                  --  freeze outside this body, not inside it, unless the
+                  --  entity is declared inside this expander generated body.
 
-                  if In_Expanded_Body (Parent_P) then
-                     declare
-                        Subp_Body : constant Node_Id := Parent (Parent_P);
-                        Spec_Id   : Entity_Id;
-
-                     begin
-                        --  Freeze the entity only when it is declared inside
-                        --  the body of the expander generated procedure. This
-                        --  case is recognized by the subprogram scope of the
-                        --  entity or its type, which is either the spec of an
-                        --  enclosing body, or (in the case of init_procs for
-                        --  which there is no separate spec) the current scope.
-
-                        if Nkind (Subp_Body) = N_Subprogram_Body then
-                           declare
-                              S : Entity_Id;
-
-                           begin
-                              Spec_Id := Corresponding_Spec (Subp_Body);
-
-                              if Present (Typ) then
-                                 S := Scope (Typ);
-                              elsif Present (Nam) then
-                                 S := Scope (Nam);
-                              else
-                                 S := Standard_Standard;
-                              end if;
-
-                              while S /= Standard_Standard
-                                and then not Is_Subprogram (S)
-                              loop
-                                 S := Scope (S);
-                              end loop;
-
-                              if S = Spec_Id then
-                                 exit;
-
-                              elsif Present (Typ)
-                                and then Scope (Typ) = Current_Scope
-                                and then
-                                  Defining_Entity (Subp_Body) = Current_Scope
-                              then
-                                 exit;
-                              end if;
-                           end;
-                        end if;
-
-                        --  If the entity is not frozen by an expression
-                        --  function that is not a completion, continue
-                        --  climbing the tree.
-
-                        if Nkind (Subp_Body) = N_Subprogram_Body
-                          and then Was_Expression_Function (Subp_Body)
-                        then
-                           null;
-
-                        --  Freeze outside the body
-
-                        else
-                           Parent_P := Parent (Parent_P);
-                           Freeze_Outside := True;
-                        end if;
-                     end;
-
-                  --  Here if normal case where we are in handled statement
-                  --  sequence and want to do the insertion right there.
-
-                  else
-                     exit;
-                  end if;
+                  exit when not In_Expanded_Body (Parent_P)
+                    or else Declared_In_Expanded_Body (Parent_P, Typ, Nam);
 
                --  If parent is a body or a spec or a block, then the current
                --  node is a statement or declaration and we can insert the
@@ -8623,7 +8558,37 @@ package body Freeze is
                   | N_Selective_Accept
                   | N_Triggering_Alternative
                =>
-                  exit when Is_List_Member (P);
+                  if No (Current_Subprogram) then
+                     exit when Is_List_Member (P);
+
+                  --  Check exceptional case documented above for an enclosing
+                  --  handled sequence of statements.
+
+                  else
+                     declare
+                        Par : Node_Id := Parent (Parent_P);
+
+                     begin
+                        while Present (Par)
+                          and then
+                            Nkind (Par) /= N_Handled_Sequence_Of_Statements
+                          and then Nkind (Parent (Par)) /= N_Subprogram_Body
+                        loop
+                           Par := Parent (Par);
+                        end loop;
+
+                        --  If we don't have a parent, then we are not in a
+                        --  well-formed tree and we ignore the freeze request.
+                        --  See previous comment in the enclosing loop.
+
+                        if No (Par) then
+                           return;
+                        end if;
+
+                        exit when not In_Expanded_Body (Par)
+                          or else Declared_In_Expanded_Body (Par, Typ, Nam);
+                     end;
+                  end if;
 
                --  The freeze nodes produced by an expression coming from the
                --  Actions list of an N_Expression_With_Actions, short-circuit
@@ -8713,15 +8678,15 @@ package body Freeze is
       --  placing them at the proper place, after the generic unit.
 
       if (In_Spec_Exp and not Inside_A_Generic)
-        or else Freeze_Outside
         or else (Is_Type (Current_Scope)
                   and then (not Is_Concurrent_Type (Current_Scope)
                              or else not Has_Completion (Current_Scope)))
         or else Ekind (Current_Scope) = E_Void
       then
          declare
-            Freeze_Nodes : List_Id := No_List;
-            Pos          : Int     := Scope_Stack.Last;
+            Freeze_Nodes : List_Id   := No_List;
+            Pos          : Int       := Scope_Stack.Last;
+            Scop         : Entity_Id := Current_Scope;
 
          begin
             if Present (Desig_Typ) then
@@ -8737,7 +8702,8 @@ package body Freeze is
             end if;
 
             --  The current scope may be that of a constrained component of
-            --  an enclosing record declaration, or of a loop of an enclosing
+            --  an enclosing record declaration, or a block of an enclosing
+            --  declare expression in Ada 2022, or of a loop of an enclosing
             --  quantified expression or aggregate with an iterated component
             --  in Ada 2022, which is above the current scope in the scope
             --  stack. Indeed in the context of a quantified expression or
@@ -8747,12 +8713,18 @@ package body Freeze is
             --  If the expression is within a top-level pragma, as for a pre-
             --  condition on a library-level subprogram, nothing to do.
 
-            if not Is_Compilation_Unit (Current_Scope)
-              and then (Is_Record_Type (Scope (Current_Scope))
-                         or else (Ekind (Current_Scope) = E_Loop
-                                   and then Is_Internal (Current_Scope)))
-            then
-               Pos := Pos - 1;
+            if not Is_Compilation_Unit (Scop) then
+               if Is_Record_Type (Scope (Scop)) then
+                  Pos := Pos - 1;
+
+               else
+                  while Ekind (Scop) in E_Block | E_Loop
+                    and then Is_Internal (Scop)
+                  loop
+                     Pos  := Pos - 1;
+                     Scop := Scope (Scop);
+                  end loop;
+               end if;
             end if;
 
             if Is_Non_Empty_List (Freeze_Nodes) then
@@ -10156,6 +10128,13 @@ package body Freeze is
       then
          Error_Msg_N
            ("pragma Inline_Always not allowed for dispatching subprograms", E);
+      end if;
+
+      if Is_Dispatching_Operation (E)
+        and then Present (Overridden_Operation (E))
+      then
+         Local_Restrict.Check_Overriding
+           (Overrider_Op => E, Overridden_Op => Overridden_Operation (E));
       end if;
 
       --  Because of the implicit representation of inherited predefined

@@ -3,14 +3,14 @@ Date: Wed, 4 Sep 2019 11:13:43 -0700
 Subject: gcc-gfdl-build
 
 ---
- gcc/Makefile.in | 27 ++-------------------------
- 1 file changed, 2 insertions(+), 25 deletions(-)
+ gcc/Makefile.in | 28 ++--------------------------
+ 1 file changed, 2 insertions(+), 26 deletions(-)
 
 diff --git a/gcc/Makefile.in b/gcc/Makefile.in
-index 775aaa1..5146cd5 100644
+index d475bf1..177476b 100644
 --- a/gcc/Makefile.in
 +++ b/gcc/Makefile.in
-@@ -2637,31 +2637,8 @@ s-tm-texi: $(srcdir)/doc/../doc/tm.texi
+@@ -2757,32 +2757,8 @@ s-tm-texi: $(srcdir)/doc/../doc/tm.texi
  # \r is not portable to Solaris tr, therefore we have a special
  # case for ASCII.  We use \r for other encodings like EBCDIC.
  s-tm-texi: build/genhooks$(build_exeext) $(srcdir)/doc/tm.texi.in
@@ -29,6 +29,7 @@ index 775aaa1..5146cd5 100644
 -	    || test $(srcdir)/doc/tm.texi -nt $(srcdir)/c-family/c-target.def \
 -	    || test $(srcdir)/doc/tm.texi -nt $(srcdir)/common/common-target.def \
 -	    || test $(srcdir)/doc/tm.texi -nt $(srcdir)/d/d-target.def \
+-	    || test $(srcdir)/doc/tm.texi -nt $(srcdir)/rust/rust-target.def \
 -	  ); then \
 -	  echo >&2 ; \
 -	  echo You should edit $(srcdir)/doc/tm.texi.in rather than $(srcdir)/doc/tm.texi . >&2 ; \
@@ -42,5 +43,5 @@ index 775aaa1..5146cd5 100644
 +	cat $(srcdir)/doc/tm.texi.in > tmp-tm.texi
 +	$(STAMP) $@
  
- gimple-match.cc: s-match gimple-match-head.cc ; @true
- generic-match.cc: s-match generic-match-head.cc ; @true
+ $(GIMPLE_MATCH_PD_SEQ_SRC): s-gimple-match gimple-match-head.cc; @true
+ gimple-match-auto.h: s-gimple-match; @true

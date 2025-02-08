@@ -1,6 +1,6 @@
 /* Definitions of the pointer_query and related classes.
 
-   Copyright (C) 2020-2023 Free Software Foundation, Inc.
+   Copyright (C) 2020-2024 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -317,14 +317,15 @@ get_size_range (range_query *query, tree exp, gimple *stmt, tree range[2],
   if (integral)
     {
       value_range vr;
+      tree tmin, tmax;
 
       query->range_of_expr (vr, exp, stmt);
 
       if (vr.undefined_p ())
 	vr.set_varying (TREE_TYPE (exp));
-      range_type = vr.kind ();
-      min = wi::to_wide (vr.min ());
-      max = wi::to_wide (vr.max ());
+      range_type = get_legacy_range (vr, tmin, tmax);
+      min = wi::to_wide (tmin);
+      max = wi::to_wide (tmax);
     }
   else
     range_type = VR_VARYING;
@@ -2586,6 +2587,17 @@ array_elt_at_offset (tree artype, HOST_WIDE_INT off,
 tree
 build_printable_array_type (tree eltype, unsigned HOST_WIDE_INT nelts)
 {
+  /* Cannot build an array type of functions or methods without
+     an error diagnostic.  */
+  if (FUNC_OR_METHOD_TYPE_P (eltype))
+    {
+      tree arrtype = make_node (ARRAY_TYPE);
+      TREE_TYPE (arrtype) = eltype;
+      TYPE_SIZE (arrtype) = bitsize_zero_node;
+      TYPE_SIZE_UNIT (arrtype) = size_zero_node;
+      return arrtype;
+    }
+
   if (TYPE_SIZE_UNIT (eltype)
       && TREE_CODE (TYPE_SIZE_UNIT (eltype)) == INTEGER_CST
       && !integer_zerop (TYPE_SIZE_UNIT (eltype))
